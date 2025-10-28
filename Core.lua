@@ -7,6 +7,8 @@ local addonName, addon = ...
 addon.frame = CreateFrame("Frame")
 addon.highlights = {}
 addon.lastHighlightedGUID = nil
+addon.lastTargetGUID = nil -- Track the last targeted enemy
+addon.currentTargetGUID = nil -- Track current target to detect changes
 
 -- Default settings
 local defaults = {
@@ -163,12 +165,18 @@ function addon:GetHostileUnitsInRange()
             if isEnemy then
                 local guid = UnitGUID(unit)
                 if guid then
+                    -- Get actual distance
+                    local distanceSquared, checkedDistance = UnitDistanceSquared(unit)
+                    local distance = 999
+                    if checkedDistance and distanceSquared then
+                        distance = math.sqrt(distanceSquared)
+                    end
+                    
                     table.insert(units, {
                         unit = unit,
                         guid = guid,
-                        distance = 0, -- We'll calculate this if needed
-                        x = 0,
-                        y = 0,
+                        distance = distance,
+                        nameplateId = i,
                     })
                 end
             end
@@ -181,12 +189,17 @@ function addon:GetHostileUnitsInRange()
         if UnitExists("target") and UnitCanAttack("player", "target") then
             local guid = UnitGUID("target")
             if guid then
+                local distanceSquared, checkedDistance = UnitDistanceSquared("target")
+                local distance = 999
+                if checkedDistance and distanceSquared then
+                    distance = math.sqrt(distanceSquared)
+                end
+                
                 table.insert(units, {
                     unit = "target",
                     guid = guid,
-                    distance = 0,
-                    x = 0,
-                    y = 0,
+                    distance = distance,
+                    nameplateId = 999,
                 })
             end
         end
@@ -195,12 +208,17 @@ function addon:GetHostileUnitsInRange()
         if UnitExists("mouseover") and UnitCanAttack("player", "mouseover") then
             local guid = UnitGUID("mouseover")
             if guid then
+                local distanceSquared, checkedDistance = UnitDistanceSquared("mouseover")
+                local distance = 999
+                if checkedDistance and distanceSquared then
+                    distance = math.sqrt(distanceSquared)
+                end
+                
                 table.insert(units, {
                     unit = "mouseover",
                     guid = guid,
-                    distance = 0,
-                    x = 0,
-                    y = 0,
+                    distance = distance,
+                    nameplateId = 998,
                 })
             end
         end
@@ -224,12 +242,27 @@ function addon:GetNextTabTarget()
     
     local currentTarget = UnitGUID("target")
     
-    -- If no current target, return the first hostile unit
+    -- Sort units by WoW's TAB targeting behavior:
+    -- Primary: Distance (closer targets first)
+    -- Secondary: Nameplate ID (screen position left-to-right, top-to-bottom)
+    table.sort(hostileUnits, function(a, b)
+        local distDiff = math.abs(a.distance - b.distance)
+        
+        -- If distance differs by more than 5 yards, sort by distance
+        if distDiff > 5 then
+            return a.distance < b.distance
+        end
+        
+        -- Similar distance, sort by nameplate ID (screen position)
+        return a.nameplateId < b.nameplateId
+    end)
+    
+    -- If no current target, return the first in sorted list
     if not currentTarget then
         return hostileUnits[1]
     end
     
-    -- Find current target in the list and return the next one
+    -- Find current target in sorted list and return the next one
     for i, unitData in ipairs(hostileUnits) do
         if unitData.guid == currentTarget then
             -- Return next unit in the list, or wrap to first
@@ -238,44 +271,45 @@ function addon:GetNextTabTarget()
         end
     end
     
-    -- Current target not in list, return first hostile
+    -- Current target not in list, return first in sorted list
     return hostileUnits[1]
 end
 
--- Determine which unit would be targeted by SHIFT+TAB (previous target)
-function addon:GetPreviousTabTarget()
-    local hostileUnits = self:GetHostileUnitsInRange()
-    
-    if #hostileUnits == 0 then
+-- Get the last enemy that was targeted (for showing previous target)
+function addon:GetLastTargetedEnemy()
+    -- If we don't have a last target, return nil
+    if not self.lastTargetGUID then
         return nil
     end
     
-    -- If only one target, that's also the "previous" one
-    if #hostileUnits == 1 then
-        return hostileUnits[1]
-    end
+    -- Check if the last target still exists and is targetable
+    local hostileUnits = self:GetHostileUnitsInRange()
     
-    local currentTarget = UnitGUID("target")
-    
-    -- If no current target, return the last hostile unit
-    if not currentTarget then
-        return hostileUnits[#hostileUnits]
-    end
-    
-    -- Find current target in the list and return the previous one
-    for i, unitData in ipairs(hostileUnits) do
-        if unitData.guid == currentTarget then
-            -- Return previous unit in the list, or wrap to last
-            local prevIndex = i - 1
-            if prevIndex < 1 then
-                prevIndex = #hostileUnits
-            end
-            return hostileUnits[prevIndex]
+    for _, unitData in ipairs(hostileUnits) do
+        if unitData.guid == self.lastTargetGUID then
+            -- Found the last target and it's still valid
+            return unitData
         end
     end
     
-    -- Current target not in list, return last hostile
-    return hostileUnits[#hostileUnits]
+    -- Last target is no longer valid/targetable
+    return nil
+end
+
+-- Track target changes to remember the last enemy
+function addon:UpdateTargetTracking()
+    local currentGUID = UnitGUID("target")
+    
+    -- If target changed
+    if currentGUID ~= self.currentTargetGUID then
+        -- If we had a previous target and it was an enemy, save it
+        if self.currentTargetGUID and UnitCanAttack("player", "target") then
+            self.lastTargetGUID = self.currentTargetGUID
+        end
+        
+        -- Update current target
+        self.currentTargetGUID = currentGUID
+    end
 end
 
 -- Create or update highlight for a unit
@@ -417,11 +451,14 @@ end
 
 -- Update the highlight (main function called by events)
 function addon:UpdateHighlight()
+    -- Update target tracking to remember last enemy
+    self:UpdateTargetTracking()
+    
     -- Clear all previous highlights
     self:ClearHighlights()
     
     local nextTarget = self:GetNextTabTarget()
-    local prevTarget = self:GetPreviousTabTarget()
+    local prevTarget = self:GetLastTargetedEnemy()
     local currentTargetGUID = UnitGUID("target")
     
     -- Update debug frame
@@ -446,7 +483,7 @@ function addon:UpdateHighlight()
         self:HighlightUnit(nextTarget, NextTargetDB.highlightColor, NextTargetDB.borderThickness, NextTargetDB.borderOffset)
     end
     
-    -- Highlight previous target (light blue) - but not if it's current or next
+    -- Highlight last targeted enemy (light blue) - but not if it's current or next
     if NextTargetDB.showPreviousTarget and prevTarget then
         local shouldHighlight = true
         

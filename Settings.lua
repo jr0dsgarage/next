@@ -173,7 +173,7 @@ nextOffsetSlider = CreateSlider("Offset", 0, 5, "borderOffset", -32)
 
 -- Previous Target section
 CreateHeader("Previous Target", -12)
-showPreviousCheck = CreateCheckbox("Show previous target border", "showPreviousTarget", -4)
+showPreviousCheck = CreateCheckbox("Show last targeted enemy", "showPreviousTarget", -4)
 prevColorPicker = CreateColorPicker("Border Color:", NextTargetDB.previousTargetColor, -4)
 prevThicknessSlider = CreateSlider("Thickness", 1, 5, "previousBorderThickness", -28)
 prevOffsetSlider = CreateSlider("Offset", 0, 5, "previousBorderOffset", -32)
