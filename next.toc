@@ -1,0 +1,11 @@
+## Interface: 110002
+## Title: [next] - kNow Each eXact Target 
+## Author: j__r0d
+## Version: 1.0.0
+## Notes: Highlights the target that would be selected when pressing TAB or SHIFT+TAB, as well as the current target.  
+## DefaultState: Enabled
+## LoadOnDemand: 0
+## SavedVariables: NextTargetDB
+
+Core.lua
+Settings.lua

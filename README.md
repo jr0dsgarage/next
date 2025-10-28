@@ -1,4 +1,4 @@
-# kNow Each Exact Target (NEXT)
+# [next] - kNow Each eXact Target (NEXT)
 
 A World of Warcraft addon that highlights the target that would be selected when pressing TAB.
 
