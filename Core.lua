@@ -6,7 +6,6 @@ local addonName, addon = ...
 -- Addon variables
 addon.frame = CreateFrame("Frame")
 addon.highlights = {}
-addon.lastHighlightedGUID = nil
 addon.lastTargetGUID = nil -- Track the last targeted enemy
 addon.currentTargetGUID = nil -- Track current target to detect changes
 
@@ -16,12 +15,9 @@ local defaults = {
     highlightColor = {r = 1, g = 1, b = 0, a = 0.8}, -- Yellow for next target
     currentTargetColor = {r = 0, g = 1, b = 0, a = 0.8}, -- Green for current target
     previousTargetColor = {r = 0, g = 0.7, b = 1, a = 0.8}, -- Light blue for previous target
-    highlightSize = 32,
     onlyInCombat = false,
-    showOnNameplates = true,
     debugMode = false,
     debugFramePosition = nil,
-    visualStyle = "border", -- border, arrow, star, ring, square
     borderThickness = 2,
     borderOffset = 1,
     currentBorderThickness = 2,
@@ -29,6 +25,7 @@ local defaults = {
     previousBorderThickness = 2,
     previousBorderOffset = 1,
     showCurrentTarget = true,
+    showNextTarget = true,
     showPreviousTarget = true,
 }
 
@@ -154,6 +151,15 @@ end
 function addon:GetHostileUnitsInRange()
     local units = {}
     
+    -- Helper function to get unit distance
+    local function GetUnitDistance(unit)
+        local distanceSquared, checkedDistance = UnitDistanceSquared(unit)
+        if checkedDistance and distanceSquared then
+            return math.sqrt(distanceSquared)
+        end
+        return 999
+    end
+    
     -- Check nameplates (most reliable for enemies in range)
     for i = 1, 40 do
         local unit = "nameplate" .. i
@@ -165,17 +171,10 @@ function addon:GetHostileUnitsInRange()
             if isEnemy then
                 local guid = UnitGUID(unit)
                 if guid then
-                    -- Get actual distance
-                    local distanceSquared, checkedDistance = UnitDistanceSquared(unit)
-                    local distance = 999
-                    if checkedDistance and distanceSquared then
-                        distance = math.sqrt(distanceSquared)
-                    end
-                    
                     table.insert(units, {
                         unit = unit,
                         guid = guid,
-                        distance = distance,
+                        distance = GetUnitDistance(unit),
                         nameplateId = i,
                     })
                 end
@@ -189,16 +188,10 @@ function addon:GetHostileUnitsInRange()
         if UnitExists("target") and UnitCanAttack("player", "target") then
             local guid = UnitGUID("target")
             if guid then
-                local distanceSquared, checkedDistance = UnitDistanceSquared("target")
-                local distance = 999
-                if checkedDistance and distanceSquared then
-                    distance = math.sqrt(distanceSquared)
-                end
-                
                 table.insert(units, {
                     unit = "target",
                     guid = guid,
-                    distance = distance,
+                    distance = GetUnitDistance("target"),
                     nameplateId = 999,
                 })
             end
@@ -208,16 +201,10 @@ function addon:GetHostileUnitsInRange()
         if UnitExists("mouseover") and UnitCanAttack("player", "mouseover") then
             local guid = UnitGUID("mouseover")
             if guid then
-                local distanceSquared, checkedDistance = UnitDistanceSquared("mouseover")
-                local distance = 999
-                if checkedDistance and distanceSquared then
-                    distance = math.sqrt(distanceSquared)
-                end
-                
                 table.insert(units, {
                     unit = "mouseover",
                     guid = guid,
-                    distance = distance,
+                    distance = GetUnitDistance("mouseover"),
                     nameplateId = 998,
                 })
             end
@@ -446,7 +433,6 @@ function addon:ClearHighlights()
         highlight:SetParent(nil)
     end
     self.highlights = {}
-    self.lastHighlightedGUID = nil
 end
 
 -- Update the highlight (main function called by events)
@@ -479,7 +465,7 @@ function addon:UpdateHighlight()
     end
     
     -- Highlight next target (yellow) - but not if it's the current target
-    if nextTarget and (not currentTargetGUID or nextTarget.guid ~= currentTargetGUID) then
+    if NextTargetDB.showNextTarget and nextTarget and (not currentTargetGUID or nextTarget.guid ~= currentTargetGUID) then
         self:HighlightUnit(nextTarget, NextTargetDB.highlightColor, NextTargetDB.borderThickness, NextTargetDB.borderOffset)
     end
     
@@ -618,48 +604,12 @@ function SlashCmdList.NEXTTARGET(msg)
         NextTargetDB.onlyInCombat = not NextTargetDB.onlyInCombat
         print("|cFF00FF00[next]|r Combat only mode " .. (NextTargetDB.onlyInCombat and "enabled" or "disabled"))
         addon:UpdateHighlight()
-    elseif command == "style" or command:find("^style ") then
-        local style = command:match("^style%s+(.+)") or "next"
-        local styles = {"arrow", "star", "ring", "square"}
-        
-        if style == "next" or style == "" then
-            -- Cycle to next style
-            local currentIndex = 1
-            for i, s in ipairs(styles) do
-                if s == NextTargetDB.visualStyle then
-                    currentIndex = i
-                    break
-                end
-            end
-            local nextIndex = (currentIndex % #styles) + 1
-            NextTargetDB.visualStyle = styles[nextIndex]
-        else
-            -- Set specific style
-            local validStyle = false
-            for _, s in ipairs(styles) do
-                if style == s then
-                    validStyle = true
-                    NextTargetDB.visualStyle = style
-                    break
-                end
-            end
-            if not validStyle then
-                print("|cFFFF0000[next]|r Invalid style. Use: arrow, star, ring, or square")
-                return
-            end
-        end
-        
-        print("|cFF00FF00[next]|r Visual style set to: " .. NextTargetDB.visualStyle)
-        addon:ClearHighlights()
-        addon:UpdateHighlight()
     elseif command == "help" then
         print("|cFF00FF00[next] commands:|r")
         print("  |cFFFFFF00/next|r or |cFFFFFF00/next toggle|r - Toggle the addon on/off")
         print("  |cFFFFFF00/next config|r - Open settings panel")
         print("  |cFFFFFF00/next test|r - Print debug info to chat (easy debugging!)")
         print("  |cFFFFFF00/next debug|r - Toggle debug frame (shows moveable frame)")
-        print("  |cFFFFFF00/next style|r - Cycle through visual styles (border/arrow/star/ring/square)")
-        print("  |cFFFFFF00/next style <name>|r - Set specific style")
         print("  |cFFFFFF00/next combat|r - Toggle combat-only mode")
         print("  |cFFFFFF00/next help|r - Show this help")
     else

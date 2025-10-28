@@ -13,24 +13,21 @@ scrollFrame:SetPoint("BOTTOMRIGHT", -27, 4)
 
 -- Create the content frame that will hold all the UI elements
 local content = CreateFrame("Frame", nil, scrollFrame)
-content:SetSize(600, 800) -- Fixed width and initial height
+content:SetSize(620, 600) -- Adjusted width to fit better
 scrollFrame:SetScrollChild(content)
 
 -- Variables to hold UI elements
 local enableCheckbox, combatCheckbox, debugCheckbox
-local showCurrentCheck, showPreviousCheck
+local showCurrentCheck, showNextCheck, showPreviousCheck
 local currentColorPicker, nextColorPicker, prevColorPicker
 local currentThicknessSlider, currentOffsetSlider
 local nextThicknessSlider, nextOffsetSlider
 local prevThicknessSlider, prevOffsetSlider
-local lastElement
 
 -- Function to build the settings UI (called on first show)
 local function BuildSettingsUI()
     if panel.isBuilt then return end
     panel.isBuilt = true
-    
-    print("[next] Building settings UI...") -- Debug output
 
     -- Title
     local title = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -57,12 +54,10 @@ local function BuildSettingsUI()
     debugCheckbox:SetPoint("TOPLEFT", combatCheckbox, "BOTTOMLEFT", 0, -4)
     debugCheckbox.Text:SetText("Debug Mode")
 
-    lastElement = debugCheckbox
-
 -- Helper function to create color picker button
-local function CreateColorPicker(label, colorTable, yOffset)
+local function CreateColorPicker(parent, anchorPoint, label, colorTable, xOffset, yOffset)
     local colorLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    colorLabel:SetPoint("TOPLEFT", lastElement, "BOTTOMLEFT", 0, yOffset)
+    colorLabel:SetPoint("TOPLEFT", parent, anchorPoint, xOffset, yOffset)
     colorLabel:SetText(label)
 
     local colorButton = CreateFrame("Button", nil, content)
@@ -74,47 +69,66 @@ local function CreateColorPicker(label, colorTable, yOffset)
     border:SetAllPoints()
     border:SetColorTexture(0.3, 0.3, 0.3, 1)
     
-    -- Create inner color texture with proper initialization
+    -- Create inner color texture
     local innerTexture = colorButton:CreateTexture(nil, "ARTWORK")
     innerTexture:SetPoint("TOPLEFT", 2, -2)
     innerTexture:SetPoint("BOTTOMRIGHT", -2, 2)
-    innerTexture:SetColorTexture(colorTable.r or 1, colorTable.g or 1, colorTable.b or 0)
+    innerTexture:SetColorTexture(colorTable.r or 1, colorTable.g or 1, colorTable.b or 0, colorTable.a or 1)
     colorButton.texture = innerTexture
     
     colorButton:SetScript("OnClick", function()
-        local function OnColorChanged()
-            local r, g, b = ColorPickerFrame:GetColorRGB()
-            colorTable.r = r
-            colorTable.g = g
-            colorTable.b = b
-            innerTexture:SetColorTexture(r, g, b)
-            addon:ClearHighlights()
-            addon:UpdateHighlight()
-        end
-        
-        ColorPickerFrame:SetColorRGB(colorTable.r, colorTable.g, colorTable.b)
-        ColorPickerFrame.hasOpacity = false
-        ColorPickerFrame.func = OnColorChanged
-        ColorPickerFrame.opacityFunc = OnColorChanged
-        ColorPickerFrame.cancelFunc = function()
-            innerTexture:SetColorTexture(colorTable.r, colorTable.g, colorTable.b)
-        end
-        ColorPickerFrame:Hide()
-        ColorPickerFrame:Show()
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = colorTable.r,
+            g = colorTable.g,
+            b = colorTable.b,
+            opacity = colorTable.a,
+            hasOpacity = true,
+            swatchFunc = function()
+                local r, g, b = ColorPickerFrame:GetColorRGB()
+                local a = ColorPickerFrame:GetColorAlpha()
+                colorTable.r = r
+                colorTable.g = g
+                colorTable.b = b
+                colorTable.a = a
+                innerTexture:SetColorTexture(r, g, b, a)
+                addon:ClearHighlights()
+                addon:UpdateHighlight()
+            end,
+            opacityFunc = function()
+                local r, g, b = ColorPickerFrame:GetColorRGB()
+                local a = ColorPickerFrame:GetColorAlpha()
+                colorTable.r = r
+                colorTable.g = g
+                colorTable.b = b
+                colorTable.a = a
+                innerTexture:SetColorTexture(r, g, b, a)
+                addon:ClearHighlights()
+                addon:UpdateHighlight()
+            end,
+            cancelFunc = function()
+                local prev = ColorPickerFrame.previousValues
+                colorTable.r = prev.r
+                colorTable.g = prev.g
+                colorTable.b = prev.b
+                colorTable.a = prev.opacity or 1
+                innerTexture:SetColorTexture(prev.r, prev.g, prev.b, prev.opacity or 1)
+                addon:ClearHighlights()
+                addon:UpdateHighlight()
+            end,
+        })
     end)
     
-    lastElement = colorLabel
-    return colorButton
+    return colorButton, colorLabel
 end
 
 -- Helper function to create slider
-local function CreateSlider(label, minVal, maxVal, dbKey, yOffset)
+local function CreateSlider(parent, anchorPoint, label, minVal, maxVal, dbKey, xOffset, yOffset)
     local slider = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", lastElement, "BOTTOMLEFT", 16, yOffset)
+    slider:SetPoint("TOPLEFT", parent, anchorPoint, xOffset, yOffset)
     slider:SetMinMaxValues(minVal, maxVal)
     slider:SetValueStep(1)
     slider:SetObeyStepOnDrag(true)
-    slider:SetWidth(180)
+    slider:SetWidth(160)
     slider.Low:SetText(tostring(minVal))
     slider.High:SetText(tostring(maxVal))
     slider.Text:SetText(label .. ": " .. (NextTargetDB[dbKey] or minVal))
@@ -128,23 +142,21 @@ local function CreateSlider(label, minVal, maxVal, dbKey, yOffset)
         addon:UpdateHighlight()
     end)
     
-    lastElement = slider
     return slider
 end
 
 -- Helper function to create section header
-local function CreateHeader(text, yOffset)
+local function CreateHeader(parent, anchorPoint, text, xOffset, yOffset)
     local header = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    header:SetPoint("TOPLEFT", lastElement, "BOTTOMLEFT", -16, yOffset or -16)
+    header:SetPoint("TOPLEFT", parent, anchorPoint, xOffset, yOffset)
     header:SetText(text)
-    lastElement = header
     return header
 end
 
 -- Helper function to create checkbox
-local function CreateCheckbox(label, dbKey, yOffset)
+local function CreateCheckbox(parent, anchorPoint, label, dbKey, xOffset, yOffset)
     local checkbox = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
-    checkbox:SetPoint("TOPLEFT", lastElement, "BOTTOMLEFT", 0, yOffset or -4)
+    checkbox:SetPoint("TOPLEFT", parent, anchorPoint, xOffset, yOffset)
     checkbox.Text:SetText(label)
     checkbox.dbKey = dbKey
     
@@ -154,29 +166,61 @@ local function CreateCheckbox(label, dbKey, yOffset)
         addon:UpdateHighlight()
     end)
     
-    lastElement = checkbox
     return checkbox
 end
 
--- Current Target section
-CreateHeader("Current Target", -16)
-showCurrentCheck = CreateCheckbox("Show current target border", "showCurrentTarget", -4)
-currentColorPicker = CreateColorPicker("Border Color:", NextTargetDB.currentTargetColor, -4)
-currentThicknessSlider = CreateSlider("Thickness", 1, 5, "currentBorderThickness", -28)
-currentOffsetSlider = CreateSlider("Offset", 0, 5, "currentBorderOffset", -32)
+-- Column starting Y position
+local columnStartY = -120
 
--- Next Target section
-CreateHeader("Next Target", -12)
-nextColorPicker = CreateColorPicker("Border Color:", NextTargetDB.highlightColor, -4)
-nextThicknessSlider = CreateSlider("Thickness", 1, 5, "borderThickness", -28)
-nextOffsetSlider = CreateSlider("Offset", 0, 5, "borderOffset", -32)
+-- Helper function to create column background
+local function CreateColumnBG(parent, xOffset, width, height)
+    local bg = content:CreateTexture(nil, "BACKGROUND")
+    bg:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", xOffset, columnStartY + 20)
+    bg:SetSize(width, height)
+    bg:SetColorTexture(0.1, 0.1, 0.1, 0.3)
+    
+    -- Create border
+    local border = CreateFrame("Frame", nil, content, "BackdropTemplate")
+    border:SetPoint("TOPLEFT", bg, "TOPLEFT", -1, 1)
+    border:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 1, -1)
+    border:SetBackdrop({
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 12,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 }
+    })
+    border:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+    
+    return bg
+end
 
--- Previous Target section
-CreateHeader("Previous Target", -12)
-showPreviousCheck = CreateCheckbox("Show last targeted enemy", "showPreviousTarget", -4)
-prevColorPicker = CreateColorPicker("Border Color:", NextTargetDB.previousTargetColor, -4)
-prevThicknessSlider = CreateSlider("Thickness", 1, 5, "previousBorderThickness", -28)
-prevOffsetSlider = CreateSlider("Offset", 0, 5, "previousBorderOffset", -32)
+-- Create column backgrounds
+CreateColumnBG(subtitle, 0, 190, 260)
+CreateColumnBG(subtitle, 200, 190, 260)
+CreateColumnBG(subtitle, 400, 190, 260)
+
+-- CURRENT TARGET COLUMN (Left)
+local currentHeader = CreateHeader(subtitle, "BOTTOMLEFT", "Current Target", 8, columnStartY)
+showCurrentCheck = CreateCheckbox(currentHeader, "BOTTOMLEFT", "Show current target border", "showCurrentTarget", 0, -8)
+local currentColorLabel
+currentColorPicker, currentColorLabel = CreateColorPicker(showCurrentCheck, "BOTTOMLEFT", "Border Color:", NextTargetDB.currentTargetColor, 0, -8)
+currentThicknessSlider = CreateSlider(currentColorLabel, "BOTTOMLEFT", "Thickness", 1, 5, "currentBorderThickness", 0, -32)
+currentOffsetSlider = CreateSlider(currentThicknessSlider, "BOTTOMLEFT", "Offset", 0, 5, "currentBorderOffset", 0, -36)
+
+-- NEXT TARGET COLUMN (Center)
+local nextHeader = CreateHeader(subtitle, "BOTTOMLEFT", "Next Target", 208, columnStartY)
+showNextCheck = CreateCheckbox(nextHeader, "BOTTOMLEFT", "Show next target border", "showNextTarget", 0, -8)
+local nextColorLabel
+nextColorPicker, nextColorLabel = CreateColorPicker(showNextCheck, "BOTTOMLEFT", "Border Color:", NextTargetDB.highlightColor, 0, -8)
+nextThicknessSlider = CreateSlider(nextColorLabel, "BOTTOMLEFT", "Thickness", 1, 5, "borderThickness", 0, -32)
+nextOffsetSlider = CreateSlider(nextThicknessSlider, "BOTTOMLEFT", "Offset", 0, 5, "borderOffset", 0, -36)
+
+-- PREVIOUS TARGET COLUMN (Right)
+local prevHeader = CreateHeader(subtitle, "BOTTOMLEFT", "Previous Target", 408, columnStartY)
+showPreviousCheck = CreateCheckbox(prevHeader, "BOTTOMLEFT", "Show last targeted enemy", "showPreviousTarget", 0, -8)
+local prevColorLabel
+prevColorPicker, prevColorLabel = CreateColorPicker(showPreviousCheck, "BOTTOMLEFT", "Border Color:", NextTargetDB.previousTargetColor, 0, -8)
+prevThicknessSlider = CreateSlider(prevColorLabel, "BOTTOMLEFT", "Thickness", 1, 5, "previousBorderThickness", 0, -32)
+prevOffsetSlider = CreateSlider(prevThicknessSlider, "BOTTOMLEFT", "Offset", 0, 5, "previousBorderOffset", 0, -36)
 
 -- Checkbox scripts
 enableCheckbox:SetScript("OnClick", function(self)
@@ -204,11 +248,7 @@ debugCheckbox:SetScript("OnClick", function(self)
 end)
 
 -- Set content height to accommodate all elements
--- Calculate height needed based on the last element's position
-local totalHeight = 500 -- Reduced height with tighter spacing
-content:SetHeight(totalHeight)
-
-print("[next] Settings UI built successfully!") -- Debug output
+content:SetHeight(450)
 
 end -- End of BuildSettingsUI function
 
@@ -228,6 +268,7 @@ panel.refresh = function()
     combatCheckbox:SetChecked(NextTargetDB.onlyInCombat)
     debugCheckbox:SetChecked(NextTargetDB.debugMode)
     showCurrentCheck:SetChecked(NextTargetDB.showCurrentTarget)
+    showNextCheck:SetChecked(NextTargetDB.showNextTarget)
     showPreviousCheck:SetChecked(NextTargetDB.showPreviousTarget)
     
     -- Update sliders
@@ -269,6 +310,7 @@ panel.default = function()
     combatCheckbox:SetChecked(false)
     debugCheckbox:SetChecked(false)
     showCurrentCheck:SetChecked(true)
+    showNextCheck:SetChecked(true)
     showPreviousCheck:SetChecked(true)
     
     currentThicknessSlider:SetValue(2)
