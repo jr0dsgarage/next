@@ -432,26 +432,34 @@ function addon:ShowBoundsOverlay()
     end
     self.boundsFrame:Show()
     self:UpdateBoundsOverlay()
-    -- This block should be inside a function, e.g. addon:UpdateDebugFrame()
-    -- Example implementation:
-    function addon:UpdateDebugFrame()
-        local lines = {}
-        local currentTargetGUID = UnitGUID("target")
-        local prevTarget = nil
-        if self.GetLastTargetedEnemy then
-            prevTarget = self:GetLastTargetedEnemy()
-        end
-        local nameplates = C_NamePlate and C_NamePlate.GetNamePlates and C_NamePlate.GetNamePlates() or {}
-        table.insert(lines, string.format("Total nameplates: %d", #nameplates))
-        for i, nameplateFrame in ipairs(nameplates) do
-            local unit = nameplateFrame and nameplateFrame.namePlateUnitToken or nil
-            local name = unit and UnitName(unit) or "Unknown"
-            local reaction = unit and UnitReaction(unit, "player") or "?"
-            local isEnemy = reaction and reaction <= 4
-            table.insert(lines, string.format("NP%02d: %s (unit=%s, react=%s)", i, name, tostring(unit), tostring(reaction)))
-        end
-        table.insert(lines, "")
-        local hostileUnits = self.GetHostileUnitsInRange and self:GetHostileUnitsInRange() or {}
+end
+
+-- Hide bounds overlay
+function addon:HideBoundsOverlay()
+    if self.boundsFrame then
+        self.boundsFrame:Hide()
+    end
+end
+
+-- Update debug frame with current targeting info
+function addon:UpdateDebugFrame()
+    local lines = {}
+    local currentTargetGUID = UnitGUID("target")
+    local prevTarget = nil
+    if self.GetLastTargetedEnemy then
+        prevTarget = self:GetLastTargetedEnemy()
+    end
+    local nameplates = C_NamePlate and C_NamePlate.GetNamePlates and C_NamePlate.GetNamePlates() or {}
+    table.insert(lines, string.format("Total nameplates: %d", #nameplates))
+    for i, nameplateFrame in ipairs(nameplates) do
+        local unit = nameplateFrame and nameplateFrame.namePlateUnitToken or nil
+        local name = unit and UnitName(unit) or "Unknown"
+        local reaction = unit and UnitReaction(unit, "player") or "?"
+        local isEnemy = reaction and reaction <= 4
+        table.insert(lines, string.format("NP%02d: %s (unit=%s, react=%s)", i, name, tostring(unit), tostring(reaction)))
+    end
+    table.insert(lines, "")
+    local hostileUnits = self.GetHostileUnitsInRange and self:GetHostileUnitsInRange() or {}
         table.insert(lines, string.format("Hostile units found: %d", #hostileUnits))
         for i, unitData in ipairs(hostileUnits) do
             if i <= 10 then
@@ -467,76 +475,20 @@ function addon:ShowBoundsOverlay()
         local leftBound = screenWidth / 3
         local rightBound = 2 * screenWidth / 3
         local topBound = screenHeight / 2
-        table.insert(lines, string.format("Screen: %.0fx%.0f | Bounds: left=%.0f, right=%.0f, top=%.0f", screenWidth, screenHeight, leftBound, rightBound, topBound))
         
-        -- Show nameplate positions and filtering results
-        table.insert(lines, "Nameplate positions:")
-        local inBoundsCount = 0
-        local outOfBoundsCount = 0
-        local cannotCheckCount = 0
+        -- Show nameplate ordering info
+        table.insert(lines, "")
+        table.insert(lines, "Target filtering: Nameplate enumeration order (lower numbers = higher priority)")
+        table.insert(lines, "Hostile units sorted by nameplate number:")
         
         for i, unitData in ipairs(hostileUnits) do
             if i <= 10 then
-                local nameplate = nil
-                local canCheckPosition = false
-                local debugInfo = ""
-                
-                if _G and type(_G.C_NamePlate) == "table" and type(_G.C_NamePlate.GetNamePlateForUnit) == "function" then
-                    local success, np = pcall(_G.C_NamePlate.GetNamePlateForUnit, unitData.unit)
-                    if success and np then
-                        nameplate = np
-                        -- Try to check if forbidden
-                        local isForbiddenSuccess, isForbidden = pcall(function() return nameplate:IsForbidden() end)
-                        local isProtectedSuccess, isProtected = pcall(function() return nameplate:IsProtected() end)
-                        
-                        if isForbiddenSuccess and isForbidden then
-                            canCheckPosition = false
-                            debugInfo = "forbidden"
-                        elseif isProtectedSuccess and isProtected then
-                            -- Even if protected, try to access position properties
-                            canCheckPosition = true
-                            debugInfo = "protected (trying anyway)"
-                        else
-                            canCheckPosition = nameplate:IsShown()
-                            debugInfo = canCheckPosition and "accessible" or "hidden"
-                        end
-                    else
-                        debugInfo = "no nameplate"
-                    end
-                end
-                
-                if canCheckPosition then
-                    -- Try GetLeft/GetBottom/GetWidth/GetHeight instead of GetCenter
-                    local success, left = pcall(function() return nameplate:GetLeft() end)
-                    local success2, bottom = pcall(function() return nameplate:GetBottom() end)
-                    local success3, width = pcall(function() return nameplate:GetWidth() end)
-                    local success4, height = pcall(function() return nameplate:GetHeight() end)
-                    
-                    if success and left and success2 and bottom and success3 and width and success4 and height then
-                        local x = left + (width / 2)
-                        local y = bottom + (height / 2)
-                        local inBounds = (x >= leftBound and x <= rightBound and y >= topBound)
-                        if inBounds then
-                            inBoundsCount = inBoundsCount + 1
-                            table.insert(lines, string.format("  |cFF00FF00✓ %s:|r x=%.0f, y=%.0f [IN BOUNDS] (%s)", UnitName(unitData.unit) or "Unknown", x, y, debugInfo))
-                        else
-                            outOfBoundsCount = outOfBoundsCount + 1
-                            table.insert(lines, string.format("  |cFFFF0000✗ %s:|r x=%.0f, y=%.0f [OUT OF BOUNDS] (%s)", UnitName(unitData.unit) or "Unknown", x, y, debugInfo))
-                        end
-                    else
-                        cannotCheckCount = cannotCheckCount + 1
-                        table.insert(lines, string.format("  |cFFAAAAA0? %s:|r can't get position (%s)", UnitName(unitData.unit) or "Unknown", debugInfo))
-                    end
-                else
-                    cannotCheckCount = cannotCheckCount + 1
-                    table.insert(lines, string.format("  |cFFAAAAA0? %s:|r can't check position (%s)", UnitName(unitData.unit) or "Unknown", debugInfo))
-                end
+                local name = UnitName(unitData.unit) or "Unknown"
+                local npNum = unitData.nameplateNumber or "?"
+                table.insert(lines, string.format("  %d. |cFF00FF00%s:|r unit=%s (nameplate #%s)", 
+                    i, name, unitData.unit, tostring(npNum)))
             end
         end
-        
-        -- Add summary line
-        table.insert(lines, string.format("|cFF00FF00In bounds: %d|r | |cFFFF0000Out of bounds: %d|r | |cFFAAAAA0Cannot check: %d|r", 
-            inBoundsCount, outOfBoundsCount, cannotCheckCount))
         
         table.insert(lines, "")
         if currentTargetGUID then
@@ -561,15 +513,6 @@ function addon:ShowBoundsOverlay()
         
         -- Store the debug text for copying
         local debugText = table.concat(lines, "\n")
-        self.lastDebugText = debugText
-        
-        if self.debugFrame and self.debugFrame.targetText then
-            self.debugFrame.targetText:SetText(debugText)
-        end
-    end
-    -- Ensure 'lines' and 'prevTarget' are defined before use
-    -- This block should be inside a function, so wrap in a function if needed
-    -- If this is not inside a function, move it to the appropriate debug update function
         self.lastDebugText = debugText
         
         if self.debugFrame and self.debugFrame.targetText then
@@ -633,65 +576,31 @@ function addon:GetNextTabTarget()
         end
     end
     
-    -- Limit to top-center column of screen
-    local centerConeUnits = {}
-    local screenWidth = UIParent:GetWidth()
-    local screenHeight = UIParent:GetHeight()
-    local leftBound = screenWidth / 3
-    local rightBound = 2 * screenWidth / 3
-    local topBound = screenHeight / 2
+    -- FINAL APPROACH: Use nameplate enumeration order
+    -- WoW assigns nameplate1, nameplate2, etc. in a specific order
+    -- This order often correlates with distance or screen position
+    -- Extract the number from the unit token and use it for sorting
+    
     for _, unitData in ipairs(hostileUnits) do
-        local nameplate = nil
-        local canCheckPosition = false
-        
-        if _G and type(_G.C_NamePlate) == "table" and type(_G.C_NamePlate.GetNamePlateForUnit) == "function" then
-            local success, np = pcall(_G.C_NamePlate.GetNamePlateForUnit, unitData.unit)
-            if success and np then
-                nameplate = np
-                -- Check if we can safely access the nameplate
-                local isForbiddenSuccess, isForbidden = pcall(function() return nameplate:IsForbidden() end)
-                local isProtectedSuccess, isProtected = pcall(function() return nameplate:IsProtected() end)
-                
-                if isForbiddenSuccess and isForbidden then
-                    canCheckPosition = false
-                elseif isProtectedSuccess and isProtected then
-                    -- Even if protected, try to access position
-                    canCheckPosition = true
-                else
-                    canCheckPosition = nameplate:IsShown()
-                end
-            end
-        end
-        
-        if canCheckPosition then
-            -- Try GetLeft/GetBottom/GetWidth/GetHeight instead of GetCenter
-            local success, left = pcall(function() return nameplate:GetLeft() end)
-            local success2, bottom = pcall(function() return nameplate:GetBottom() end)
-            local success3, width = pcall(function() return nameplate:GetWidth() end)
-            local success4, height = pcall(function() return nameplate:GetHeight() end)
+        if UnitExists(unitData.unit) then
+            unitData.inRange = true
             
-            if success and left and success2 and bottom and success3 and width and success4 and height then
-                local x = left + (width / 2)
-                local y = bottom + (height / 2)
-                if x >= leftBound and x <= rightBound and y >= topBound then
-                    table.insert(centerConeUnits, unitData)
-                end
-                -- If out of bounds, don't include
-            end
-            -- If can't get position, don't include
+            -- Extract nameplate number from unit token (e.g., "nameplate3" -> 3)
+            local npNum = tonumber(string.match(unitData.unit, "nameplate(%d+)"))
+            unitData.nameplateNumber = npNum or 999
         end
-        -- If nameplate forbidden/protected/unavailable, don't include
     end
     
-    -- If we couldn't determine positions for any units, we can't filter by bounds
-    -- Don't use fallback logic - if we can't verify bounds, don't select targets
-    -- This ensures we only target enemies we can confirm are in the bounds area
+    -- Sort by nameplate number - lower numbers first
+    -- This uses WoW's internal ordering which may prioritize closer/centered targets
+    table.sort(hostileUnits, function(a, b)
+        return (a.nameplateNumber or 999) < (b.nameplateNumber or 999)
+    end)
+    
+    local coneUnits = hostileUnits -- Use all hostile units, sorted by nameplate number
     
     -- Sort by distance - closest first
-    table.sort(centerConeUnits, function(a, b)
-        local aDist = a and a.distance or math.huge
-    -- Sort by distance - closest first
-    table.sort(centerConeUnits, function(a, b)
+    table.sort(coneUnits, function(a, b)
         local aDist = a and a.distance or math.huge
         local bDist = b and b.distance or math.huge
         return aDist < bDist
@@ -700,12 +609,12 @@ function addon:GetNextTabTarget()
     -- Filter to only closest enemies within the cone
     -- Take only enemies within 120% of the closest enemy's distance
     local closestDistance = math.huge
-    if centerConeUnits[1] and type(centerConeUnits[1].distance) == "number" then
-        closestDistance = centerConeUnits[1].distance
+    if coneUnits[1] and type(coneUnits[1].distance) == "number" then
+        closestDistance = coneUnits[1].distance
     end
     local filteredUnits = {}
     
-    for _, unitData in ipairs(centerConeUnits) do
+    for _, unitData in ipairs(coneUnits) do
         -- Only include if distance is a number
         if type(unitData.distance) == "number" then
             if closestDistance ~= math.huge then
@@ -722,6 +631,9 @@ function addon:GetNextTabTarget()
             table.insert(filteredUnits, unitData)
         end
     end
+    
+    -- If no current target, return closest
+    if not currentTarget then
         return filteredUnits[1]
     end
     
