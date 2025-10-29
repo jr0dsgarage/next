@@ -31,13 +31,29 @@ local defaults = {
 
 -- Initialize saved variables
 function addon:InitializeDB()
+    local function deepCopy(tbl)
+        if type(tbl) ~= "table" then return tbl end
+        local copy = {}
+        for k, v in pairs(tbl) do
+            if type(v) == "table" then
+                copy[k] = deepCopy(v)
+            else
+                copy[k] = v
+            end
+        end
+        return copy
+    end
     if not NextTargetDB then
-        NextTargetDB = CopyTable(defaults)
+        NextTargetDB = deepCopy(defaults)
     else
         -- Merge defaults with saved settings
         for key, value in pairs(defaults) do
             if NextTargetDB[key] == nil then
-                NextTargetDB[key] = value
+                if type(value) == "table" then
+                    NextTargetDB[key] = deepCopy(value)
+                else
+                    NextTargetDB[key] = value
+                end
             end
         end
     end
@@ -85,24 +101,61 @@ function addon:CreateDebugFrame()
     title:SetPoint("TOP", 0, -15)
     title:SetText("|cFF00FF00next - debug|r")
     
-    -- Create scrollable text area
+    -- Create scrollable text area with copyable EditBox
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 20, -40)
     scroll:SetPoint("BOTTOMRIGHT", -30, 15)
     
     local scrollChild = CreateFrame("Frame", nil, scroll)
-    scrollChild:SetSize(450, 350)
+    scrollChild:SetSize(450, 1000)
     scroll:SetScrollChild(scrollChild)
     
-    -- Target info text (scrollable content)
-    local targetText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    targetText:SetPoint("TOPLEFT", 5, -5)
-    targetText:SetJustifyH("LEFT")
-    targetText:SetJustifyV("TOP")
-    targetText:SetWidth(440)
-    targetText:SetHeight(340)
-    targetText:SetMaxLines(50)
-    frame.targetText = targetText
+    -- Copyable EditBox for debug text
+    local editBox = CreateFrame("EditBox", nil, scrollChild)
+    editBox:SetMultiLine(true)
+    editBox:SetAutoFocus(false)
+    editBox:SetFontObject("GameFontHighlightSmall")
+    editBox:SetPoint("TOPLEFT", 5, -5)
+    editBox:SetWidth(440)
+    editBox:SetHeight(1000)
+    editBox:EnableMouse(true)
+    editBox:SetMaxLetters(0)
+    editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    editBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    editBox:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    editBox:SetScript("OnEditFocusLost", function(self) self:HighlightText(0, 0) end)
+    frame.targetText = editBox
+    
+    -- Button container at bottom center
+    local buttonContainer = CreateFrame("Frame", nil, frame)
+    buttonContainer:SetSize(200, 30)
+    buttonContainer:SetPoint("BOTTOM", frame, "BOTTOM", 0, 10)
+    
+    -- Toggle Bounds button
+    local boundsBtn = CreateFrame("Button", nil, buttonContainer, "UIPanelButtonTemplate")
+    boundsBtn:SetSize(90, 22)
+    boundsBtn:SetText("Show Bounds")
+    boundsBtn:SetPoint("LEFT", buttonContainer, "LEFT", 0, 0)
+    boundsBtn:SetScript("OnClick", function()
+        if addon.boundsFrame and addon.boundsFrame:IsShown() then
+            addon:HideBoundsOverlay()
+            boundsBtn:SetText("Show Bounds")
+        else
+            addon:ShowBoundsOverlay()
+            boundsBtn:SetText("Hide Bounds")
+        end
+    end)
+    -- Store button reference so we can update it
+    frame.boundsBtn = boundsBtn
+    
+    -- Reload UI button
+    local reloadBtn = CreateFrame("Button", nil, buttonContainer, "UIPanelButtonTemplate")
+    reloadBtn:SetSize(70, 22)
+    reloadBtn:SetText("Reload UI")
+    reloadBtn:SetPoint("LEFT", boundsBtn, "RIGHT", 5, 0)
+    reloadBtn:SetScript("OnClick", function()
+        ReloadUI()
+    end)
     
     -- Close button
     local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
@@ -288,7 +341,6 @@ function addon:ShowConeOverlay()
         self:CreateConeOverlay()
     end
     self.coneFrame:Show()
-    
     -- Start a ticker to update the cone
     if self.coneTicker then
         self.coneTicker:Cancel()
@@ -303,77 +355,251 @@ function addon:ShowConeOverlay()
             end
         end
     end)
-    
     print("|cFF00FF00Next Target|r Cone overlay shown. Type /next cone to hide.")
 end
 
-        screenWidth, screenHeight, coneWidth, coneHeight))
-    
-    table.insert(lines, "")
-    table.insert(lines, "|cFFFFFF00=== NAMEPLATE SCAN ===|r")
-    
-    -- Get current state
-    local lines = {}
-    local currentTargetGUID = UnitGUID("target")
-    local prevTarget = self:GetLastTargetedEnemy()
-    local nameplates = C_NamePlate.GetNamePlates()
-    table.insert(lines, string.format("Total nameplates: %d", #nameplates))
-    for i, nameplateFrame in ipairs(nameplates) do
-        local unit = nameplateFrame.namePlateUnitToken
-        local name = unit and UnitName(unit) or "Unknown"
-        local reaction = unit and UnitReaction(unit, "player") or "?"
-        local isEnemy = reaction and reaction <= 4
-        local status = isEnemy and "ENEMY" or "FRIEND"
-        table.insert(lines, string.format("NP%02d: %s (unit=%s, react=%s)", i, name, tostring(unit), tostring(reaction)))
+-- Create bounds overlay to show the top-center column area
+function addon:CreateBoundsOverlay()
+    if self.boundsFrame then
+        return
     end
-    table.insert(lines, "")
-    local hostileUnits = self:GetHostileUnitsInRange()
-    table.insert(lines, string.format("Hostile units found: %d", #hostileUnits))
-    for i, unitData in ipairs(hostileUnits) do
-        if i <= 10 then
-            local name = UnitName(unitData.unit) or "Unknown"
-            table.insert(lines, string.format("  %d. %s (unit=%s, NP%d)", i, name, unitData.unit, unitData.nameplateId))
+    
+    local frame = CreateFrame("Frame", "NextTargetBoundsFrame", UIParent)
+    frame:SetFrameStrata("TOOLTIP")
+    frame:SetFrameLevel(100)
+    
+    -- Left boundary line
+    frame.leftLine = frame:CreateTexture(nil, "OVERLAY")
+    frame.leftLine:SetColorTexture(1, 0, 0, 0.8)  -- Bright red
+    frame.leftLine:SetSize(4, UIParent:GetHeight())
+    
+    -- Right boundary line
+    frame.rightLine = frame:CreateTexture(nil, "OVERLAY")
+    frame.rightLine:SetColorTexture(1, 0, 0, 0.8)  -- Bright red
+    frame.rightLine:SetSize(4, UIParent:GetHeight())
+    
+    -- Top boundary line (horizontal)
+    frame.topLine = frame:CreateTexture(nil, "OVERLAY")
+    frame.topLine:SetColorTexture(1, 0, 0, 0.8)  -- Bright red
+    frame.topLine:SetSize(1, 4)  -- Will be resized dynamically
+    
+    -- Semi-transparent fill to show the target area
+    frame.fill = frame:CreateTexture(nil, "BACKGROUND")
+    frame.fill:SetColorTexture(1, 1, 0, 0.15)  -- Yellow tint
+    
+    self.boundsFrame = frame
+    frame:Hide()
+end
+
+-- Update bounds overlay
+function addon:UpdateBoundsOverlay()
+    if not self.boundsFrame or not self.boundsFrame:IsShown() then
+        return
+    end
+    
+    local screenWidth = UIParent:GetWidth()
+    local screenHeight = UIParent:GetHeight()
+    local leftBound = screenWidth / 3
+    local rightBound = 2 * screenWidth / 3
+    local topBound = screenHeight / 2
+    local boundsWidth = rightBound - leftBound
+    
+    -- Position left line (vertical red line on left edge)
+    self.boundsFrame.leftLine:ClearAllPoints()
+    self.boundsFrame.leftLine:SetSize(4, screenHeight)
+    self.boundsFrame.leftLine:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", leftBound, 0)
+    
+    -- Position right line (vertical red line on right edge)
+    self.boundsFrame.rightLine:ClearAllPoints()
+    self.boundsFrame.rightLine:SetSize(4, screenHeight)
+    self.boundsFrame.rightLine:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", rightBound, 0)
+    
+    -- Position top line (horizontal red line at the boundary between top and bottom halves)
+    self.boundsFrame.topLine:ClearAllPoints()
+    self.boundsFrame.topLine:SetSize(boundsWidth, 4)
+    self.boundsFrame.topLine:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", leftBound, topBound)
+    
+    -- Position fill area (top-center column: from topBound up to top of screen)
+    self.boundsFrame.fill:ClearAllPoints()
+    self.boundsFrame.fill:SetSize(boundsWidth, screenHeight - topBound)
+    self.boundsFrame.fill:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", leftBound, topBound)
+end
+
+-- Show bounds overlay
+function addon:ShowBoundsOverlay()
+    if not self.boundsFrame then
+        self:CreateBoundsOverlay()
+    end
+    self.boundsFrame:Show()
+    self:UpdateBoundsOverlay()
+    -- This block should be inside a function, e.g. addon:UpdateDebugFrame()
+    -- Example implementation:
+    function addon:UpdateDebugFrame()
+        local lines = {}
+        local currentTargetGUID = UnitGUID("target")
+        local prevTarget = nil
+        if self.GetLastTargetedEnemy then
+            prevTarget = self:GetLastTargetedEnemy()
+        end
+        local nameplates = C_NamePlate and C_NamePlate.GetNamePlates and C_NamePlate.GetNamePlates() or {}
+        table.insert(lines, string.format("Total nameplates: %d", #nameplates))
+        for i, nameplateFrame in ipairs(nameplates) do
+            local unit = nameplateFrame and nameplateFrame.namePlateUnitToken or nil
+            local name = unit and UnitName(unit) or "Unknown"
+            local reaction = unit and UnitReaction(unit, "player") or "?"
+            local isEnemy = reaction and reaction <= 4
+            table.insert(lines, string.format("NP%02d: %s (unit=%s, react=%s)", i, name, tostring(unit), tostring(reaction)))
+        end
+        table.insert(lines, "")
+        local hostileUnits = self.GetHostileUnitsInRange and self:GetHostileUnitsInRange() or {}
+        table.insert(lines, string.format("Hostile units found: %d", #hostileUnits))
+        for i, unitData in ipairs(hostileUnits) do
+            if i <= 10 then
+                local name = UnitName(unitData.unit) or "Unknown"
+                table.insert(lines, string.format("  %d. %s (unit=%s, NP%d)", i, name, unitData.unit, unitData.nameplateId))
+            end
+        end
+        
+        -- Add screen bounds and nameplate position info
+        table.insert(lines, "")
+        local screenWidth = UIParent:GetWidth()
+        local screenHeight = UIParent:GetHeight()
+        local leftBound = screenWidth / 3
+        local rightBound = 2 * screenWidth / 3
+        local topBound = screenHeight / 2
+        table.insert(lines, string.format("Screen: %.0fx%.0f | Bounds: left=%.0f, right=%.0f, top=%.0f", screenWidth, screenHeight, leftBound, rightBound, topBound))
+        
+        -- Show nameplate positions and filtering results
+        table.insert(lines, "Nameplate positions:")
+        local inBoundsCount = 0
+        local outOfBoundsCount = 0
+        local cannotCheckCount = 0
+        
+        for i, unitData in ipairs(hostileUnits) do
+            if i <= 10 then
+                local nameplate = nil
+                local canCheckPosition = false
+                local debugInfo = ""
+                
+                if _G and type(_G.C_NamePlate) == "table" and type(_G.C_NamePlate.GetNamePlateForUnit) == "function" then
+                    local success, np = pcall(_G.C_NamePlate.GetNamePlateForUnit, unitData.unit)
+                    if success and np then
+                        nameplate = np
+                        -- Try to check if forbidden
+                        local isForbiddenSuccess, isForbidden = pcall(function() return nameplate:IsForbidden() end)
+                        local isProtectedSuccess, isProtected = pcall(function() return nameplate:IsProtected() end)
+                        
+                        if isForbiddenSuccess and isForbidden then
+                            canCheckPosition = false
+                            debugInfo = "forbidden"
+                        elseif isProtectedSuccess and isProtected then
+                            -- Even if protected, try to access position properties
+                            canCheckPosition = true
+                            debugInfo = "protected (trying anyway)"
+                        else
+                            canCheckPosition = nameplate:IsShown()
+                            debugInfo = canCheckPosition and "accessible" or "hidden"
+                        end
+                    else
+                        debugInfo = "no nameplate"
+                    end
+                end
+                
+                if canCheckPosition then
+                    -- Try GetLeft/GetBottom/GetWidth/GetHeight instead of GetCenter
+                    local success, left = pcall(function() return nameplate:GetLeft() end)
+                    local success2, bottom = pcall(function() return nameplate:GetBottom() end)
+                    local success3, width = pcall(function() return nameplate:GetWidth() end)
+                    local success4, height = pcall(function() return nameplate:GetHeight() end)
+                    
+                    if success and left and success2 and bottom and success3 and width and success4 and height then
+                        local x = left + (width / 2)
+                        local y = bottom + (height / 2)
+                        local inBounds = (x >= leftBound and x <= rightBound and y >= topBound)
+                        if inBounds then
+                            inBoundsCount = inBoundsCount + 1
+                            table.insert(lines, string.format("  |cFF00FF00✓ %s:|r x=%.0f, y=%.0f [IN BOUNDS] (%s)", UnitName(unitData.unit) or "Unknown", x, y, debugInfo))
+                        else
+                            outOfBoundsCount = outOfBoundsCount + 1
+                            table.insert(lines, string.format("  |cFFFF0000✗ %s:|r x=%.0f, y=%.0f [OUT OF BOUNDS] (%s)", UnitName(unitData.unit) or "Unknown", x, y, debugInfo))
+                        end
+                    else
+                        cannotCheckCount = cannotCheckCount + 1
+                        table.insert(lines, string.format("  |cFFAAAAA0? %s:|r can't get position (%s)", UnitName(unitData.unit) or "Unknown", debugInfo))
+                    end
+                else
+                    cannotCheckCount = cannotCheckCount + 1
+                    table.insert(lines, string.format("  |cFFAAAAA0? %s:|r can't check position (%s)", UnitName(unitData.unit) or "Unknown", debugInfo))
+                end
+            end
+        end
+        
+        -- Add summary line
+        table.insert(lines, string.format("|cFF00FF00In bounds: %d|r | |cFFFF0000Out of bounds: %d|r | |cFFAAAAA0Cannot check: %d|r", 
+            inBoundsCount, outOfBoundsCount, cannotCheckCount))
+        
+        table.insert(lines, "")
+        if currentTargetGUID then
+            local currentName = UnitName("target") or "Unknown"
+            table.insert(lines, string.format("|cFF00FF00Current target:|r %s", currentName))
+        else
+            table.insert(lines, "|cFFAAAAAACurrent target: (none)|r")
+        end
+        local nextTarget = self.GetNextTabTarget and self:GetNextTabTarget() or nil
+        if nextTarget then
+            local name = UnitName(nextTarget.unit) or "Unknown"
+            table.insert(lines, string.format("|cFFFFFF00Next target:|r %s", name))
+        else
+            table.insert(lines, "|cFFAAAAAANext target: (none)|r")
+        end
+        if prevTarget then
+            local name = UnitName(prevTarget.unit) or "Unknown"
+            table.insert(lines, string.format("|cFF00AAFFPrevious target:|r %s", name))
+        else
+            table.insert(lines, "|cFFAAAAAAPrevious target: (none)|r")
+        end
+        
+        -- Store the debug text for copying
+        local debugText = table.concat(lines, "\n")
+        self.lastDebugText = debugText
+        
+        if self.debugFrame and self.debugFrame.targetText then
+            self.debugFrame.targetText:SetText(debugText)
         end
     end
-    table.insert(lines, "")
-    if currentTargetGUID then
-        local currentName = UnitName("target") or "Unknown"
-        table.insert(lines, string.format("|cFF00FF00Current target:|r %s", currentName))
-    else
-        table.insert(lines, "|cFFAAAAAACurrent target: (none)|r")
+    -- Ensure 'lines' and 'prevTarget' are defined before use
+    -- This block should be inside a function, so wrap in a function if needed
+    -- If this is not inside a function, move it to the appropriate debug update function
+        self.lastDebugText = debugText
+        
+        if self.debugFrame and self.debugFrame.targetText then
+            self.debugFrame.targetText:SetText(debugText)
+        end
     end
-    if nextTarget then
-        local name = UnitName(nextTarget.unit) or "Unknown"
-        table.insert(lines, string.format("|cFFFFFF00Next target:|r %s", name))
-    else
-        table.insert(lines, "|cFFAAAAAANext target: (none)|r")
-    end
-    if prevTarget then
-        local name = UnitName(prevTarget.unit) or "Unknown"
-        table.insert(lines, string.format("|cFF00AAFFPrevious target:|r %s", name))
-    else
-        table.insert(lines, "|cFFAAAAAAPrevious target: (none)|r")
-    end
-    self.debugFrame.targetText:SetText(table.concat(lines, "\n"))
-end
 
 -- Get all hostile units in range that could be tab-targeted
 function addon:GetHostileUnitsInRange()
     local hostileUnits = {}
-    local nameplates = C_NamePlate.GetNamePlates()
+    local nameplates = nil
+    if _G and type(_G.C_NamePlate) == "table" and type(_G.C_NamePlate.GetNamePlates) == "function" then
+        nameplates = _G.C_NamePlate.GetNamePlates()
+    else
+        nameplates = {}
+    end
     if not nameplates then
         return hostileUnits
     end
     -- For debug: collect info on all nameplates
     self._lastNameplateScan = {}
     for i, nameplateFrame in ipairs(nameplates) do
-        local unit = nameplateFrame.namePlateUnitToken
+        local unit = nameplateFrame and nameplateFrame.namePlateUnitToken or nil
         local info = {id = i, unit = unit, name = nil, exists = false, reaction = nil, isHostile = false}
         if unit then
             info.name = UnitName(unit)
             info.exists = UnitExists(unit)
             info.reaction = UnitReaction(unit, "player")
             info.isHostile = info.exists and info.reaction and info.reaction <= 4
+            -- Debug spam removed - info only in debug panel
             if info.isHostile then
                 local guid = UnitGUID(unit)
                 table.insert(hostileUnits, {
@@ -407,55 +633,95 @@ function addon:GetNextTabTarget()
         end
     end
     
-    -- Filter to a narrower horizontal cone using nameplate IDs
-    -- Lower nameplate IDs are more centered/important
-    -- WoW assigns IDs based on screen position and importance
+    -- Limit to top-center column of screen
     local centerConeUnits = {}
-    
+    local screenWidth = UIParent:GetWidth()
+    local screenHeight = UIParent:GetHeight()
+    local leftBound = screenWidth / 3
+    local rightBound = 2 * screenWidth / 3
+    local topBound = screenHeight / 2
     for _, unitData in ipairs(hostileUnits) do
-        -- Only include nameplates with ID <= 15 (more centered targets)
-        -- or if it's the current target (always include)
-        -- IDs 1-15 tend to be more central/in-view targets
-        -- Higher IDs (16-40) are often peripheral or behind
-        if unitData.nameplateId <= 15 or 
-           unitData.nameplateId >= 900 or  -- Include special IDs (target/mouseover)
-           (currentTarget and unitData.guid == currentTarget) then
-            table.insert(centerConeUnits, unitData)
-        end
-    end
-    
-    -- If filter removed everything except current target, fall back to closer range
-    if #centerConeUnits == 0 or (#centerConeUnits == 1 and currentTarget) then
-        centerConeUnits = {}
-        for _, unitData in ipairs(hostileUnits) do
-            if unitData.nameplateId <= 20 or 
-               unitData.nameplateId >= 900 or
-               (currentTarget and unitData.guid == currentTarget) then
-                table.insert(centerConeUnits, unitData)
+        local nameplate = nil
+        local canCheckPosition = false
+        
+        if _G and type(_G.C_NamePlate) == "table" and type(_G.C_NamePlate.GetNamePlateForUnit) == "function" then
+            local success, np = pcall(_G.C_NamePlate.GetNamePlateForUnit, unitData.unit)
+            if success and np then
+                nameplate = np
+                -- Check if we can safely access the nameplate
+                local isForbiddenSuccess, isForbidden = pcall(function() return nameplate:IsForbidden() end)
+                local isProtectedSuccess, isProtected = pcall(function() return nameplate:IsProtected() end)
+                
+                if isForbiddenSuccess and isForbidden then
+                    canCheckPosition = false
+                elseif isProtectedSuccess and isProtected then
+                    -- Even if protected, try to access position
+                    canCheckPosition = true
+                else
+                    canCheckPosition = nameplate:IsShown()
+                end
             end
         end
+        
+        if canCheckPosition then
+            -- Try GetLeft/GetBottom/GetWidth/GetHeight instead of GetCenter
+            local success, left = pcall(function() return nameplate:GetLeft() end)
+            local success2, bottom = pcall(function() return nameplate:GetBottom() end)
+            local success3, width = pcall(function() return nameplate:GetWidth() end)
+            local success4, height = pcall(function() return nameplate:GetHeight() end)
+            
+            if success and left and success2 and bottom and success3 and width and success4 and height then
+                local x = left + (width / 2)
+                local y = bottom + (height / 2)
+                if x >= leftBound and x <= rightBound and y >= topBound then
+                    table.insert(centerConeUnits, unitData)
+                end
+                -- If out of bounds, don't include
+            end
+            -- If can't get position, don't include
+        end
+        -- If nameplate forbidden/protected/unavailable, don't include
     end
+    
+    -- If we couldn't determine positions for any units, we can't filter by bounds
+    -- Don't use fallback logic - if we can't verify bounds, don't select targets
+    -- This ensures we only target enemies we can confirm are in the bounds area
     
     -- Sort by distance - closest first
     table.sort(centerConeUnits, function(a, b)
-        return a.distance < b.distance
+        local aDist = a and a.distance or math.huge
+    -- Sort by distance - closest first
+    table.sort(centerConeUnits, function(a, b)
+        local aDist = a and a.distance or math.huge
+        local bDist = b and b.distance or math.huge
+        return aDist < bDist
     end)
     
     -- Filter to only closest enemies within the cone
     -- Take only enemies within 120% of the closest enemy's distance
-    local closestDistance = centerConeUnits[1].distance
+    local closestDistance = math.huge
+    if centerConeUnits[1] and type(centerConeUnits[1].distance) == "number" then
+        closestDistance = centerConeUnits[1].distance
+    end
     local filteredUnits = {}
     
     for _, unitData in ipairs(centerConeUnits) do
-        -- Include if within 120% of closest, or if it's the current target
-        if unitData.distance <= (closestDistance * 1.2) or 
-           (currentTarget and unitData.guid == currentTarget) then
+        -- Only include if distance is a number
+        if type(unitData.distance) == "number" then
+            if closestDistance ~= math.huge then
+                if unitData.distance <= (closestDistance * 1.2) or 
+                   (currentTarget and unitData.guid == currentTarget) then
+                    table.insert(filteredUnits, unitData)
+                end
+            else
+                -- If no valid closestDistance, include all units with valid distance
+                table.insert(filteredUnits, unitData)
+            end
+        elseif (currentTarget and unitData.guid == currentTarget) then
+            -- Always include current target, even if distance is nil
             table.insert(filteredUnits, unitData)
         end
     end
-    
-    -- If no current target, return the closest one
-    if not currentTarget then
         return filteredUnits[1]
     end
     
@@ -519,7 +785,10 @@ function addon:HighlightUnit(unitData, color, thickness, offset)
         return
     end
     
-    local nameplate = C_NamePlate.GetNamePlateForUnit(unitData.unit)
+    local nameplate = nil
+    if _G and type(_G.C_NamePlate) == "table" and type(_G.C_NamePlate.GetNamePlateForUnit) == "function" then
+        nameplate = _G.C_NamePlate.GetNamePlateForUnit(unitData.unit)
+    end
     if nameplate then
         self:CreateNameplateHighlight(nameplate, unitData.unit, color, thickness, offset)
     end
@@ -663,9 +932,43 @@ function addon:UpdateHighlight()
     local nextTarget = self:GetNextTabTarget()
     local prevTarget = self:GetLastTargetedEnemy()
     
-    -- Update debug frame
+    -- Update debug frame only when something changes
     if NextTargetDB.debugMode then
-        self:UpdateDebugFrame(nextTarget)
+        local nameplates = C_NamePlate and C_NamePlate.GetNamePlates and C_NamePlate.GetNamePlates() or {}
+        local nameplateCount = #nameplates
+        local hostileUnits = self:GetHostileUnitsInRange()
+        local hostileCount = #hostileUnits
+        
+        -- Check if anything changed since last update
+        local stateChanged = false
+        if not self._lastDebugState then
+            stateChanged = true
+        else
+            if self._lastDebugState.currentTarget ~= currentTargetGUID or
+               self._lastDebugState.nextTarget ~= (nextTarget and nextTarget.guid or nil) or
+               self._lastDebugState.prevTarget ~= (prevTarget and prevTarget.guid or nil) or
+               self._lastDebugState.nameplateCount ~= nameplateCount or
+               self._lastDebugState.hostileCount ~= hostileCount then
+                stateChanged = true
+            end
+        end
+        
+        -- Only update if something changed
+        if stateChanged then
+            self._lastDebugState = {
+                currentTarget = currentTargetGUID,
+                nextTarget = nextTarget and nextTarget.guid or nil,
+                prevTarget = prevTarget and prevTarget.guid or nil,
+                nameplateCount = nameplateCount,
+                hostileCount = hostileCount
+            }
+            self:UpdateDebugFrame()
+        end
+        
+        -- Always update bounds overlay to keep it visible
+        if self.boundsFrame and self.boundsFrame:IsShown() then
+            self:UpdateBoundsOverlay()
+        end
     end
     
     -- Highlight current target (green)
@@ -753,12 +1056,12 @@ end)
 
 addon.frame:RegisterEvent("ADDON_LOADED")
 addon.frame:RegisterEvent("PLAYER_TARGET_CHANGED")
-addon.frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
-addon.frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
-addon.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-addon.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+-- Slash commands
+SLASH_NEXTTARGET1 = "/next"
+SLASH_NEXTTARGET2 = "/nexttarget"
 
 -- Slash commands
+if not SlashCmdList then SlashCmdList = {} end
 SLASH_NEXTTARGET1 = "/next"
 SLASH_NEXTTARGET2 = "/nexttarget"
 
@@ -787,6 +1090,7 @@ function SlashCmdList.NEXTTARGET(msg)
             addon:UpdateHighlight()
         else
             addon:HideDebugFrame()
+            addon:HideBoundsOverlay()
         end
     -- ...existing code...
     elseif command == "test" or command == "print" then
@@ -836,7 +1140,7 @@ function SlashCmdList.NEXTTARGET(msg)
         print("  |cFFFFFF00/next|r or |cFFFFFF00/next toggle|r - Toggle the addon on/off")
         print("  |cFFFFFF00/next config|r - Open settings panel")
         print("  |cFFFFFF00/next test|r - Print debug info to chat (easy debugging!)")
-        print("  |cFFFFFF00/next debug|r - Toggle debug frame (shows moveable frame)")
+        print("  |cFFFFFF00/next debug|r - Toggle debug frame with bounds overlay")
         print("  |cFFFFFF00/next cone|r - Toggle visual cone overlay (shows target search area)")
         print("  |cFFFFFF00/next combat|r - Toggle combat-only mode")
         print("  |cFFFFFF00/next help|r - Show this help")

@@ -77,45 +77,47 @@ local function CreateColorPicker(parent, anchorPoint, label, colorTable, xOffset
     colorButton.texture = innerTexture
     
     colorButton:SetScript("OnClick", function()
-        ColorPickerFrame:SetupColorPickerAndShow({
-            r = colorTable.r,
-            g = colorTable.g,
-            b = colorTable.b,
-            opacity = colorTable.a,
-            hasOpacity = true,
-            swatchFunc = function()
-                local r, g, b = ColorPickerFrame:GetColorRGB()
-                local a = ColorPickerFrame:GetColorAlpha()
-                colorTable.r = r
-                colorTable.g = g
-                colorTable.b = b
-                colorTable.a = a
-                innerTexture:SetColorTexture(r, g, b, a)
-                addon:ClearHighlights()
-                addon:UpdateHighlight()
-            end,
-            opacityFunc = function()
-                local r, g, b = ColorPickerFrame:GetColorRGB()
-                local a = ColorPickerFrame:GetColorAlpha()
-                colorTable.r = r
-                colorTable.g = g
-                colorTable.b = b
-                colorTable.a = a
-                innerTexture:SetColorTexture(r, g, b, a)
-                addon:ClearHighlights()
-                addon:UpdateHighlight()
-            end,
-            cancelFunc = function()
-                local prev = ColorPickerFrame.previousValues
-                colorTable.r = prev.r
-                colorTable.g = prev.g
-                colorTable.b = prev.b
-                colorTable.a = prev.opacity or 1
-                innerTexture:SetColorTexture(prev.r, prev.g, prev.b, prev.opacity or 1)
-                addon:ClearHighlights()
-                addon:UpdateHighlight()
-            end,
-        })
+        if _G.ColorPickerFrame and _G.ColorPickerFrame.SetupColorPickerAndShow then
+            _G.ColorPickerFrame:SetupColorPickerAndShow({
+                r = colorTable.r,
+                g = colorTable.g,
+                b = colorTable.b,
+                opacity = colorTable.a,
+                hasOpacity = true,
+                swatchFunc = function()
+                    local r, g, b = _G.ColorPickerFrame:GetColorRGB()
+                    local a = _G.ColorPickerFrame:GetColorAlpha()
+                    colorTable.r = r
+                    colorTable.g = g
+                    colorTable.b = b
+                    colorTable.a = a
+                    innerTexture:SetColorTexture(r, g, b, a)
+                    addon:ClearHighlights()
+                    addon:UpdateHighlight()
+                end,
+                opacityFunc = function()
+                    local r, g, b = _G.ColorPickerFrame:GetColorRGB()
+                    local a = _G.ColorPickerFrame:GetColorAlpha()
+                    colorTable.r = r
+                    colorTable.g = g
+                    colorTable.b = b
+                    colorTable.a = a
+                    innerTexture:SetColorTexture(r, g, b, a)
+                    addon:ClearHighlights()
+                    addon:UpdateHighlight()
+                end,
+                cancelFunc = function()
+                    local prev = _G.ColorPickerFrame.previousValues
+                    colorTable.r = prev.r
+                    colorTable.g = prev.g
+                    colorTable.b = prev.b
+                    colorTable.a = prev.opacity or 1
+                    innerTexture:SetColorTexture(prev.r, prev.g, prev.b, prev.opacity or 1)
+                    addon:ClearHighlights()
+                    addon:UpdateHighlight()
+                end,
+            })
+        end
     end)
     
     return colorButton, colorLabel
@@ -247,8 +249,8 @@ debugCheckbox:SetScript("OnClick", function(self)
     end
 end)
 
--- Set content height to accommodate all elements
-content:SetHeight(450)
+    -- Set content height to accommodate all elements
+    content:SetHeight(450)
 
 end -- End of BuildSettingsUI function
 
