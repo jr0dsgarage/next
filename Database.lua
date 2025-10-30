@@ -3,7 +3,6 @@ local addonName, addon = ...
 
 local DEFAULTS = {
     enabled = true,
-    onlyInCombat = false,
     debugMode = false,
     debugFramePosition = nil,
     currentTargetEnabled = true,
@@ -109,6 +108,7 @@ function addon:InitializeDB()
     NextTargetDB.rareEliteColor = nil
     NextTargetDB.rareEliteThickness = nil
     NextTargetDB.rareEliteOffset = nil
+    NextTargetDB.onlyInCombat = nil
 
     local questColor = NextTargetDB.questObjectiveColor
     if questColor and questColor.r == 1 and questColor.g == 0.5 and questColor.b == 0 then

@@ -25,21 +25,6 @@ function addon:UpdateHighlight()
         return
     end
 
-    local inCombat = false
-    if NextTargetDB.onlyInCombat then
-        if InCombatLockdown then
-            inCombat = InCombatLockdown() or false
-        else
-            inCombat = (UnitAffectingCombat and UnitAffectingCombat("player")) or false
-        end
-        if not inCombat then
-            if NextTargetDB.debugMode then
-                self:UpdateDebugFrame({})
-            end
-            return
-        end
-    end
-
     local results = self:CollectHighlights()
     if NextTargetDB.debugMode then
         self:UpdateDebugFrame(results)
@@ -142,6 +127,14 @@ SlashCmdList.NEXT = function(msg)
     msg = sanitizeCommand(msg or "")
     msg = msg:lower()
 
+    if msg == "" then
+        addon:OpenSettings()
+        print("|cFF00FF00[next]|r commands:")
+        print("  |cFFFFFF00/next config|r - open settings")
+        print("  |cFFFFFF00/next toggle|r - enable or disable the addon")
+        return
+    end
+
     if msg == "config" or msg == "options" or msg == "settings" then
         addon:OpenSettings()
         return
@@ -165,16 +158,7 @@ SlashCmdList.NEXT = function(msg)
         return
     end
 
-    if msg == "combat" then
-        NextTargetDB.onlyInCombat = not NextTargetDB.onlyInCombat
-        print(string.format("|cFF00FF00[next]|r highlight %s outside combat", NextTargetDB.onlyInCombat and "hidden" or "shown"))
-        addon:RequestUpdate()
-        return
-    end
-
     print("|cFF00FF00[next]|r commands:")
     print("  |cFFFFFF00/next config|r - open settings")
     print("  |cFFFFFF00/next toggle|r - enable or disable the addon")
-    print("  |cFFFFFF00/next combat|r - toggle combat-only mode")
-    print("  |cFFFFFF00/next debug|r - toggle debug window")
 end

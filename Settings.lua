@@ -216,7 +216,7 @@ local function buildSettingsUI()
 
     local enable = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
     enable:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -14)
-    enable.Text:SetText("Enable Addon")
+    enable.Text:SetText("Enable next")
     enable:SetScript("OnClick", function(self)
         NextTargetDB.enabled = self:GetChecked() and true or false
         if NextTargetDB.enabled then
@@ -227,31 +227,8 @@ local function buildSettingsUI()
     end)
     ui.enable = enable
 
-    local combat = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
-    combat:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, -6)
-    combat.Text:SetText("Only Show In Combat")
-    combat:SetScript("OnClick", function(self)
-        NextTargetDB.onlyInCombat = self:GetChecked() and true or false
-        accentuate()
-    end)
-    ui.combat = combat
-
-    local debug = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
-    debug:SetPoint("TOPLEFT", combat, "BOTTOMLEFT", 0, -6)
-    debug.Text:SetText("Enable Debug Window")
-    debug:SetScript("OnClick", function(self)
-        NextTargetDB.debugMode = self:GetChecked() and true or false
-        if NextTargetDB.debugMode then
-            addon:ShowDebugFrame()
-        else
-            addon:HideDebugFrame()
-        end
-        accentuate()
-    end)
-    ui.debug = debug
-
     local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    header:SetPoint("TOPLEFT", debug, "BOTTOMLEFT", 0, -18)
+    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, -18)
     header:SetText("Highlight Styles")
 
     for index, option in ipairs(highlightOptions) do
@@ -272,8 +249,6 @@ function panel.refresh()
     buildSettingsUI()
 
     ui.enable:SetChecked(NextTargetDB.enabled ~= false)
-    ui.combat:SetChecked(NextTargetDB.onlyInCombat == true)
-    ui.debug:SetChecked(NextTargetDB.debugMode == true)
 
     for _, option in ipairs(highlightOptions) do
         refreshHighlightRow(option, ui.highlightRows[option.key])
@@ -296,7 +271,6 @@ end
 
 panel.default = function()
     NextTargetDB.enabled = addon:GetDefault("enabled")
-    NextTargetDB.onlyInCombat = addon:GetDefault("onlyInCombat")
     NextTargetDB.debugMode = addon:GetDefault("debugMode")
 
     for _, option in ipairs(highlightOptions) do
@@ -326,9 +300,19 @@ end
 addon.settingsPanel = panel
 
 function addon:OpenSettings()
-    if Settings and Settings.OpenToCategory and self.settingsCategory then
-        Settings.OpenToCategory(self.settingsCategory)
-    elseif InterfaceOptionsFrame_OpenToCategory then
+    if Settings and Settings.OpenToCategory then
+        if not self.settingsCategory and self.settingsPanel then
+            local category = Settings.RegisterCanvasLayoutCategory(self.settingsPanel, self.settingsPanel.name or "next")
+            Settings.RegisterAddOnCategory(category)
+            self.settingsCategory = category
+        end
+        if self.settingsCategory and self.settingsCategory.GetID then
+            Settings.OpenToCategory(self.settingsCategory:GetID())
+            return
+        end
+    end
+
+    if InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(panel)
         InterfaceOptionsFrame_OpenToCategory(panel)
     end
