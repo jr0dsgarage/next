@@ -2,10 +2,14 @@
 ## Title: [next] - kNow Each eXact Target 
 ## Author: j__r0d
 ## Version: 1.0.0
-## Notes: Highlights the target that would be selected when pressing TAB or SHIFT+TAB, as well as the current target.  
+## Notes: Highlights visible nameplates to show quest targets.  
 ## DefaultState: Enabled
 ## LoadOnDemand: 0
 ## SavedVariables: NextTargetDB
 
+Database.lua
+Classification.lua
+Highlights.lua
+Debug.lua
 Core.lua
 Settings.lua
