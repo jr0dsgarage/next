@@ -1,38 +1,59 @@
-# [next] - kNow Each eXact Target (NEXT)
+A Next Target Highlighter
 
-A World of Warcraft addon that highlights the target that would be selected when pressing TAB.
+A World of Warcraft addon that visually highlights the next enemy target you would select with TAB, focusing on quest-related objectives.
 
 ## Features
 
-- **Visual Highlight**: Shows a pulsing yellow highlight on enemy nameplates
-- **Debug Mode**: Displays a moveable frame showing detailed information about the next target
-- **Smart Detection**: Uses angle-based targeting logic to match WoW's TAB targeting system
-- **Combat Mode**: Optional setting to only show highlights during combat
+- **Quest Highlighting:**
+	- Highlights nameplates for mobs relevant to your active quests:
+		- Quest objectives
+		- Quest items (soft target icon)
+		- World quest targets
+	- Only highlights the current target if it also matches a quest condition.
+- **Customizable Styles:**
+	- Configure highlight color, thickness, and offset for each quest type.
+	- Settings panel available in Interface > AddOns or via `/next config`.
+- **Combat Mode:**
+	- Optionally restrict highlights to combat only.
+- **Debug Panel:**
+	- Toggle with `/next debug`.
+	- Shows detailed info for up to 8 tracked units:
+		- Highlight status (color-coded)
+		- Quest context and reason for highlight or filtering
+		- Tooltip lines, quest item icon, quest boss status
+- **No Rare/Elite Highlighting:**
+	- Addon does not highlight rare/elite mobs unless they are quest-related.
+- **Clean, Data-Driven UI:**
+	- All settings are managed via a scrollable, robust options panel.
 
-## Commands
+## Usage
 
-- `/next` or `/next toggle` - Enable/disable the addon
-- `/next debug` - Toggle debug mode (shows moveable frame with target info)
-- `/next combat` - Toggle combat-only mode
-- `/next help` - Show help commands
-
-## Debug Mode
-
-When you enable debug mode with `/next debug`, a moveable frame will appear showing:
-- Name of the next target that would be selected
-- Distance to the target in yards
-- Angle relative to your facing direction
-
-**To move the debug frame**: Click and drag it anywhere on your screen. The position will be saved.
-
-## Troubleshooting
-
-If you don't see highlights:
-1. Enable debug mode with `/next debug` to verify the addon is detecting targets
-2. Make sure enemy nameplates are enabled in your WoW settings
-3. Check that you're facing enemies and they're in range
-4. Try toggling combat mode with `/next combat` if you're not in combat
+- **Commands:**
+	- `/next config` — Open settings panel
+	- `/next toggle` — Enable/disable addon
+	- `/next combat` — Toggle combat-only mode
+	- `/next debug` — Toggle debug window
+- **Settings:**
+	- Adjust highlight styles for quest objectives, quest items, and world quests
+	- Enable/disable debug panel and combat-only mode
 
 ## How It Works
 
-The addon continuously scans visible nameplates for hostile units, calculates their position relative to your character's facing direction, and determines which enemy would be next in WoW's TAB targeting sequence (clockwise rotation).
+- Scans nameplates for quest relevance using tooltip and quest log data
+- Highlights only mobs that match quest objectives, quest items, or world quests
+- Current target is highlighted only if it matches a quest condition
+- Debug panel provides color-coded, detailed feedback for each tracked unit
+
+## Installation
+
+1. Download or clone the addon into your `Interface/AddOns/next` folder
+2. Restart WoW or reload the UI
+3. Configure via `/next config` or Interface > AddOns > Next
+
+## Support
+
+For issues or feature requests, open an issue on GitHub or contact the author.
+
+---
+
+**Next Target Highlighter** — Streamline your questing by seeing exactly which mobs matter for your objectives.
