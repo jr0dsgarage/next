@@ -168,7 +168,7 @@ local function classifyUnit(unitData)
     local reason
     if hasSoftTarget then
         reason = "Has Quest Item"
-    elseif hasObjective or tooltipInfo.hasQuestObjective or isQuestBoss then
+    elseif hasObjective or tooltipInfo.hasQuestObjective then
         reason = isWorldQuest and "World Quest" or "Quest Objective"
     end
 
@@ -194,6 +194,8 @@ local function classifyUnit(unitData)
             result.note = "Quest objective already complete"
         elseif hasObjective then
             result.note = "Quest objective match, but filtered"
+        elseif isQuestBoss then
+            result.note = "Quest boss for unavailable quest"
         elseif isRare then
             result.note = "Rare/Elite (quest highlighting only)"
         end
