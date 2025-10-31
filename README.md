@@ -18,10 +18,9 @@ next is a World of Warcraft addon that helps you decide your next best target by
 - **Commands:**
   - `/next config` — Open settings panel
   - `/next toggle` — Enable/disable addon
-  - `/next combat` — Toggle combat-only mode
   - `/next debug` — Toggle debug window
 - **Settings:**
-  - Adjust highlight styles for quest objectives, quest items, and world quests
+  - Adjust highlight styles for kill/fetch quest targets, quest item targets, and world quests targets
   - Enable/disable debug panel and combat-only mode
 
 ## Installation
