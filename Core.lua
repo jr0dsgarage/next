@@ -9,12 +9,6 @@ addon.pendingUpdate = addon.pendingUpdate or false
 
 local sanitizeCommand = addon.SanitizeCommand
 
--- Classification helpers moved to Classification.lua
-
--- Highlight helpers moved to Highlights.lua
-
--- Debug frame helpers moved to Debug.lua
-
 function addon:UpdateHighlight()
     self:ClearHighlights()
 

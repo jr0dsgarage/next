@@ -80,12 +80,49 @@ local function refreshQuestCache()
     questCache.timestamp = now
     wipeTable(questCache.entries)
 
-    if not C_QuestLog or not C_QuestLog.GetNumQuestLogEntries then
+    if not C_QuestLog or not C_QuestLog.GetNumQuestLogEntries or not GetQuestObjectiveInfo then
         return questCache.entries
     end
 
-    if not GetQuestObjectiveInfo then
-        return questCache.entries
+    local addedQuestIDs = {}
+
+    local function addEntry(entry)
+        if not entry or not entry.questID then
+            return
+        end
+        addedQuestIDs[entry.questID] = true
+        if #entry.objectives > 0 then
+            questCache.entries[#questCache.entries + 1] = entry
+        end
+    end
+
+    local function buildQuestEntry(questID, isWorldQuest)
+        if not questID or addedQuestIDs[questID] then
+            return nil
+        end
+
+        if C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID) then
+            addedQuestIDs[questID] = true
+            return nil
+        end
+
+        local entry = {
+            questID = questID,
+            questName = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or "Unknown Quest",
+            isWorldQuest = isWorldQuest or (C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID)) or false,
+            objectives = {},
+        }
+
+        local objectiveCount = C_QuestLog.GetNumQuestObjectives and C_QuestLog.GetNumQuestObjectives(questID) or 0
+        for objectiveIndex = 1, objectiveCount do
+            local text, _, finished = GetQuestObjectiveInfo(questID, objectiveIndex, false)
+            if text and text ~= "" and not finished then
+                entry.objectives[#entry.objectives + 1] = text
+            end
+        end
+
+        addedQuestIDs[questID] = true
+        return entry
     end
 
     local numEntries = C_QuestLog.GetNumQuestLogEntries()
@@ -93,27 +130,66 @@ local function refreshQuestCache()
         local info = C_QuestLog.GetInfo(index)
         if info and not info.isHeader and info.questID then
             local questID = info.questID
-            local isComplete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID)
-            if not isComplete then
-                local entry = {
-                    questID = questID,
-                    questName = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or "Unknown Quest",
-                    isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID) or false,
-                    objectives = {},
-                }
+            local entry = buildQuestEntry(questID, nil)
+            addEntry(entry)
+        end
+    end
 
-                local objectiveCount = C_QuestLog.GetNumQuestObjectives and C_QuestLog.GetNumQuestObjectives(questID) or 0
-                for objectiveIndex = 1, objectiveCount do
-                    local text, _, finished = GetQuestObjectiveInfo(questID, objectiveIndex, false)
-                    if text and text ~= "" and not finished then
-                        entry.objectives[#entry.objectives + 1] = text
+    if C_TaskQuest and C_TaskQuest.GetQuestsForPlayerByMapID and C_Map and C_Map.GetBestMapForUnit then
+        local processedMaps = {}
+
+        local function addWorldQuest(questID)
+            local entry = buildQuestEntry(questID, true)
+            addEntry(entry)
+        end
+
+        local function processMap(mapID)
+            if not mapID or processedMaps[mapID] then
+                return
+            end
+            processedMaps[mapID] = true
+
+            local tasks = C_TaskQuest.GetQuestsForPlayerByMapID(mapID)
+            if tasks then
+                for _, taskInfo in ipairs(tasks) do
+                    local questID = taskInfo and taskInfo.questId
+                    if questID then
+                        local isActive
+                        if C_TaskQuest.IsActive then
+                            isActive = C_TaskQuest.IsActive(questID)
+                        else
+                            isActive = taskInfo.inProgress ~= false
+                        end
+                        if isActive then
+                            addWorldQuest(questID)
+                        end
                     end
                 end
+            end
 
-                if #entry.objectives > 0 then
-                    questCache.entries[#questCache.entries + 1] = entry
+            if C_Map.GetMapChildrenInfo and Enum and Enum.UIMapType then
+                local children = C_Map.GetMapChildrenInfo(mapID, Enum.UIMapType.Zone, false)
+                if children then
+                    for _, child in ipairs(children) do
+                        if child and child.mapID then
+                            processMap(child.mapID)
+                        end
+                    end
                 end
             end
+        end
+
+        local currentMap = C_Map.GetBestMapForUnit("player")
+        local depth = 0
+        while currentMap and depth < 6 do
+            processMap(currentMap)
+            local mapInfo = C_Map.GetMapInfo and C_Map.GetMapInfo(currentMap)
+            if mapInfo and mapInfo.parentMapID then
+                currentMap = mapInfo.parentMapID
+            else
+                currentMap = nil
+            end
+            depth = depth + 1
         end
     end
 
