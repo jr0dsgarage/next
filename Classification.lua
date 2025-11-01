@@ -2,6 +2,86 @@
 local addonName, addon = ...
 
 local wipeTable = addon.WipeTable
+local strgsub = string.gsub
+local strlower = string.lower
+
+local questUtilsIsWorldQuest = rawget(_G, "QuestUtils_IsQuestWorldQuest")
+local questUtilsIsBonusObjective = rawget(_G, "QuestUtils_IsQuestBonusObjective")
+
+local function trim(value)
+    if not value then
+        return ""
+    end
+
+    local trimmed = value:gsub("^%s+", "")
+    trimmed = trimmed:gsub("%s+$", "")
+    return trimmed
+end
+
+local function stripColorCodes(text)
+    if not text or text == "" then
+        return text
+    end
+    text = strgsub(text, "|c%x%x%x%x%x%x%x%x", "")
+    text = strgsub(text, "|r", "")
+    return text
+end
+
+local function normalizeText(text)
+    if not text or text == "" then
+        return nil
+    end
+
+    text = stripColorCodes(text)
+    if not text or text == "" then
+        return nil
+    end
+
+    text = strgsub(text, "%b()", " ")
+    text = strgsub(text, "[%[%]]", " ")
+    text = strgsub(text, "[%p%c]", " ")
+    text = strlower(strgsub(text, "%s+", " "))
+    text = trim(text)
+
+    if text == "" then
+        return nil
+    end
+
+    return text
+end
+
+local function normalizeLines(lines)
+    if not lines or #lines == 0 then
+        return nil
+    end
+
+    local normalized = {}
+    for _, line in ipairs(lines) do
+        local normalizedLine = normalizeText(line)
+        if normalizedLine and normalizedLine ~= "" then
+            normalized[#normalized + 1] = normalizedLine
+        end
+    end
+
+    if #normalized == 0 then
+        return nil
+    end
+
+    return normalized
+end
+
+local function addObjectiveText(entry, text)
+    if not text or text == "" then
+        return
+    end
+
+    entry.objectives[#entry.objectives + 1] = text
+
+    local normalized = normalizeText(text)
+    if normalized then
+        entry.normalizedObjectives[#entry.normalizedObjectives + 1] = normalized
+    end
+end
 
 local tooltipScanner = CreateFrame("GameTooltip", addonName .. "TooltipScanner", UIParent, "GameTooltipTemplate")
 tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
@@ -25,6 +105,8 @@ local function parseTooltip(unit)
         lines = {},
     }
 
+    local uniqueLines = {}
+
     tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
     tooltipScanner:SetUnit(unit)
 
@@ -34,11 +116,21 @@ local function parseTooltip(unit)
         if line then
             local text = line:GetText()
             if text and text ~= "" then
-                local current, total = text:match("(%d+)%s*/%s*(%d+)")
+                local sanitized = stripColorCodes(text)
+                if sanitized then
+                    sanitized = trim(strgsub(sanitized, "%s+", " "))
+                end
+
+                if sanitized and sanitized ~= "" and not uniqueLines[sanitized] then
+                    uniqueLines[sanitized] = true
+                    info.lines[#info.lines + 1] = sanitized
+                end
+
+                local toEvaluate = sanitized or text
+                local current, total = toEvaluate:match("(%d+)%s*/%s*(%d+)")
                 if current and total then
                     local currentNum = tonumber(current)
                     local totalNum = tonumber(total)
-                    info.lines[#info.lines + 1] = text
                     if currentNum and totalNum then
                         if currentNum >= totalNum then
                             info.hasCompletedObjective = true
@@ -46,8 +138,6 @@ local function parseTooltip(unit)
                             info.hasQuestObjective = true
                         end
                     end
-                elseif text:find("|c") then
-                    info.lines[#info.lines + 1] = text
                 end
             end
         end
@@ -86,6 +176,43 @@ local function refreshQuestCache()
 
     local addedQuestIDs = {}
 
+    local function determineWorldQuestFlag(questID, seedFlag)
+        if seedFlag then
+            return true
+        end
+
+        if not questID then
+            return false
+        end
+
+        if C_QuestLog and C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID) then
+            return true
+        end
+
+        if questUtilsIsWorldQuest and questUtilsIsWorldQuest(questID) then
+            return true
+        end
+
+        if questUtilsIsBonusObjective and questUtilsIsBonusObjective(questID) then
+            return true
+        end
+
+        if C_TaskQuest then
+            if C_TaskQuest.IsActive and C_TaskQuest.IsActive(questID) then
+                return true
+            end
+
+            if C_TaskQuest.GetQuestInfoByQuestID then
+                local taskInfo = C_TaskQuest.GetQuestInfoByQuestID(questID)
+                if taskInfo and (taskInfo.isDaily or taskInfo.isInvasion or taskInfo.isCombatAllyQuest or taskInfo.isQuestStart) then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
     local function addEntry(entry)
         if not entry or not entry.questID then
             return
@@ -109,15 +236,31 @@ local function refreshQuestCache()
         local entry = {
             questID = questID,
             questName = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or "Unknown Quest",
-            isWorldQuest = isWorldQuest or (C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID)) or false,
+            isWorldQuest = false,
             objectives = {},
+            normalizedObjectives = {},
         }
 
-        local objectiveCount = C_QuestLog.GetNumQuestObjectives and C_QuestLog.GetNumQuestObjectives(questID) or 0
-        for objectiveIndex = 1, objectiveCount do
-            local text, _, finished = GetQuestObjectiveInfo(questID, objectiveIndex, false)
-            if text and text ~= "" and not finished then
-                entry.objectives[#entry.objectives + 1] = text
+        entry.isWorldQuest = determineWorldQuestFlag(questID, isWorldQuest)
+
+        if C_QuestLog.GetQuestObjectives then
+            local objectives = C_QuestLog.GetQuestObjectives(questID)
+            if objectives then
+                for _, objective in ipairs(objectives) do
+                    if objective and objective.text and objective.text ~= "" and not objective.finished then
+                        addObjectiveText(entry, objective.text)
+                    end
+                end
+            end
+        end
+
+        if #entry.objectives == 0 then
+            local objectiveCount = C_QuestLog.GetNumQuestObjectives and C_QuestLog.GetNumQuestObjectives(questID) or 0
+            for objectiveIndex = 1, objectiveCount do
+                local text, _, finished = GetQuestObjectiveInfo(questID, objectiveIndex, false)
+                if text and text ~= "" and not finished then
+                    addObjectiveText(entry, text)
+                end
             end
         end
 
@@ -196,21 +339,42 @@ local function refreshQuestCache()
     return questCache.entries
 end
 
-local function objectiveMatches(unitName, tooltipLines, questEntries)
+local function objectiveMatches(unit, unitName, tooltipLines, questEntries)
+    local unitNameNormalized = normalizeText(unitName)
+    local unitIsRelatedToQuest = C_QuestLog and C_QuestLog.UnitIsRelatedToQuest
+    local highlightedTooltipLines
+
     for _, entry in ipairs(questEntries) do
-        for _, objective in ipairs(entry.objectives) do
-            if objective:find(unitName, 1, true) then
-                return true, entry.isWorldQuest, entry.questName
+        if entry.questID and unit and unitIsRelatedToQuest then
+            local related = unitIsRelatedToQuest(unit, entry.questID)
+            if related then
+                return true, entry.isWorldQuest, entry.questName, entry.questID
             end
-            for _, tooltipLine in ipairs(tooltipLines) do
-                if tooltipLine == objective then
-                    return true, entry.isWorldQuest, entry.questName
+        end
+
+        if entry.normalizedObjectives and unitNameNormalized then
+            for _, normalizedObjective in ipairs(entry.normalizedObjectives) do
+                if normalizedObjective and normalizedObjective:find(unitNameNormalized, 1, true) then
+                    return true, entry.isWorldQuest, entry.questName, entry.questID
+                end
+            end
+        end
+
+        if tooltipLines and entry.normalizedObjectives then
+            highlightedTooltipLines = highlightedTooltipLines or normalizeLines(tooltipLines)
+            if highlightedTooltipLines then
+                for _, tooltipLine in ipairs(highlightedTooltipLines) do
+                    for _, normalizedObjective in ipairs(entry.normalizedObjectives) do
+                        if normalizedObjective and (normalizedObjective:find(tooltipLine, 1, true) or tooltipLine:find(normalizedObjective, 1, true)) then
+                            return true, entry.isWorldQuest, entry.questName, entry.questID
+                        end
+                    end
                 end
             end
         end
     end
 
-    return false, false, nil
+    return false, false, nil, nil
 end
 
 local function classifyUnit(unitData)
@@ -234,7 +398,7 @@ local function classifyUnit(unitData)
 
     local tooltipInfo = parseTooltip(unit)
     local questEntries = refreshQuestCache()
-    local hasObjective, isWorldQuest, questName = objectiveMatches(unitName, tooltipInfo.lines, questEntries)
+    local hasObjective, isWorldQuest, questName, questID = objectiveMatches(unit, unitName, tooltipInfo.lines, questEntries)
     local hasSoftTarget = hasQuestItemIcon(unit)
     local isQuestBoss = UnitIsQuestBoss and UnitIsQuestBoss(unit)
 
@@ -255,6 +419,7 @@ local function classifyUnit(unitData)
         name = unitName,
         reason = reason,
         questName = questName,
+        questID = questID,
         tooltipLines = tooltipInfo.lines,
         isWorldQuest = isWorldQuest,
         hasSoftTarget = hasSoftTarget,

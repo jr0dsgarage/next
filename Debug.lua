@@ -1,13 +1,79 @@
 ---@diagnostic disable: undefined-global
 local addonName, addon = ...
 
+local floor = math.floor
+
+local function clamp01(value)
+    if not value then
+        return 0
+    end
+    if value <= 0 then
+        return 0
+    end
+    if value >= 1 then
+        return 1
+    end
+    return value
+end
+
+local function colorTableToHex(color)
+    if not color then
+        return "FF00FF00"
+    end
+
+    local a = floor(clamp01(color.a or 1) * 255 + 0.5)
+    local r = floor(clamp01(color.r or 0) * 255 + 0.5)
+    local g = floor(clamp01(color.g or 0) * 255 + 0.5)
+    local b = floor(clamp01(color.b or 0) * 255 + 0.5)
+
+    return string.format("%02X%02X%02X%02X", a, r, g, b)
+end
+
+local function resolveHighlightReason(info)
+    if info.reason and info.reason ~= "" then
+        return info.reason
+    end
+    if info.highlightStyle and info.highlightStyle.baseReason then
+        return info.highlightStyle.baseReason
+    end
+    return nil
+end
+
+local function resolveHighlightColor(info)
+    local reason = resolveHighlightReason(info)
+    if reason == "Has Quest Item" and NextTargetDB.questItemColor then
+        return NextTargetDB.questItemColor
+    end
+    if reason == "World Quest" and NextTargetDB.worldQuestColor then
+        return NextTargetDB.worldQuestColor
+    end
+    if reason == "Quest Objective" and NextTargetDB.questObjectiveColor then
+        return NextTargetDB.questObjectiveColor
+    end
+
+    if info.highlightStyle and info.highlightStyle.color then
+        return info.highlightStyle.color
+    end
+
+    if NextTargetDB.currentTargetColor then
+        return NextTargetDB.currentTargetColor
+    end
+
+    return { r = 0, g = 1, b = 0, a = 1 }
+end
+
+local function buildOnText(info)
+    local hex = colorTableToHex(resolveHighlightColor(info))
+    return string.format("|c%sON|r", hex)
+end
+
 local function ensureDebugFrame()
     if addon.debugFrame then
         return addon.debugFrame
     end
 
     local frame = CreateFrame("Frame", addonName .. "DebugFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(360, 300)
+    frame:SetSize(720, 300)
     frame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -50,7 +116,7 @@ local function ensureDebugFrame()
     editBox:SetMultiLine(true)
     editBox:SetAutoFocus(false)
     editBox:SetFontObject("GameFontHighlightSmall")
-    editBox:SetWidth(300)
+    editBox:SetWidth(620)
     editBox:SetHeight(400)
     editBox:SetHyperlinksEnabled(false)
     editBox:EnableMouse(true)
@@ -167,8 +233,10 @@ function addon:UpdateDebugFrame(results)
                 local base = info.highlightStyle.baseReason or reason
                 reason = string.format("%s (current target style)", base)
             end
+            local highlightOnText = buildOnText(info)
             highlightExplanation = string.format(
-                "    Highlight: |cFF00FF00ON|r - %s - Quest: %s",
+                "    Highlight: %s - %s - Quest: %s",
+                highlightOnText,
                 reason,
                 questLabelFor(info)
             )
