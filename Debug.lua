@@ -85,6 +85,8 @@ local function ensureDebugFrame()
     })
     frame:EnableMouse(true)
     frame:SetMovable(true)
+    frame:SetResizable(true)
+    frame:SetClampedToScreen(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", function(self)
@@ -123,7 +125,7 @@ local function ensureDebugFrame()
 
     local scroll = CreateFrame("ScrollFrame", addonName .. "DebugScroll", frame, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", title, "BOTTOMLEFT", -2, -8)
-    scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -28, 16)
+    scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -28, 32)
 
     local editBox = CreateFrame("EditBox", nil, scroll)
     editBox:SetMultiLine(true)
@@ -144,6 +146,47 @@ local function ensureDebugFrame()
     scroll:SetScrollChild(editBox)
 
     frame.editBox = editBox
+    frame.scroll = scroll
+
+    local resizeHandle = CreateFrame("Frame", nil, frame)
+    resizeHandle:SetSize(16, 16)
+    resizeHandle:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -6, 6)
+
+    local handleTexture = resizeHandle:CreateTexture(nil, "OVERLAY")
+    handleTexture:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    handleTexture:SetAllPoints(resizeHandle)
+
+    resizeHandle:EnableMouse(true)
+    resizeHandle:SetScript("OnMouseDown", function()
+        frame:StartSizing("BOTTOMRIGHT")
+    end)
+    resizeHandle:SetScript("OnMouseUp", function()
+        frame:StopMovingOrSizing()
+        addon:UpdateDebugFrameLayout()
+    end)
+    resizeHandle:SetScript("OnEnter", function()
+        handleTexture:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    end)
+    resizeHandle:SetScript("OnLeave", function()
+        handleTexture:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    end)
+
+    if frame.SetResizeBounds then
+        frame:SetResizeBounds(520, 240, 900, 600)
+    else
+        if frame.SetMinResize then
+            frame:SetMinResize(520, 240)
+        end
+        if frame.SetMaxResize then
+            frame:SetMaxResize(900, 600)
+        end
+    end
+
+    frame:SetScript("OnSizeChanged", function()
+        addon:UpdateDebugFrameLayout()
+    end)
+
+    frame.resizeHandle = resizeHandle
     addon.debugFrame = frame
     return frame
 end
@@ -238,8 +281,9 @@ function addon:UpdateDebugFrame(results)
             filteredCount = filteredCount + 1
         end
     end
-
-    lines[#lines + 1] = string.format("Nameplates: %d (hostile: %d) | Highlights: %d", totalNameplates, hostileNameplates, highlightedCount)
+        frame.editBox = editBox
+        frame.scroll = scroll
+        frame.resizeHandle = resizeHandle
     if filteredCount > 0 then
         lines[#lines + 1] = "Filtered units: " .. filteredCount
     end
@@ -310,4 +354,25 @@ function addon:UpdateDebugFrame(results)
         editBox:SetText(table.concat(lines, "\n"))
         editBox:SetCursorPosition(0)
     end
+
+    addon:UpdateDebugFrameLayout()
+end
+
+function addon:UpdateDebugFrameLayout()
+    if not self.debugFrame then
+        return
+    end
+
+    local frame = self.debugFrame
+    local editBox = frame.editBox
+    local scroll = frame.scroll
+    if not editBox or not scroll then
+        return
+    end
+
+    local width = math.max(360, frame:GetWidth() - 100)
+    local height = math.max(240, frame:GetHeight() - 120)
+
+    editBox:SetWidth(width)
+    editBox:SetHeight(height)
 end
