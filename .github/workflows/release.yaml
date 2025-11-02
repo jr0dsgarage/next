@@ -51,11 +51,10 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.ver.outputs.tag }}"
-          ADDON="${{ steps.name.outputs.addon }}"
-          ZIP_NAME="${ADDON}-${VERSION}.zip"
-          echo "Building $ZIP_NAME"
+          ZIP_NAME="next.zip"
+          echo "Building $ZIP_NAME (version $VERSION)"
           git archive --format=zip --output "$ZIP_NAME" HEAD
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         env:
