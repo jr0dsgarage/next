@@ -1,0 +1,77 @@
+name: Build & Release WoW Addon
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write   # required to create releases and upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # we need tags/history to detect latest tag
+
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          # If the push includes/points at a tag (e.g. v1.2.3), use it.
+          # FALLBACK: generate a date+shortsha version.
+          TAG="$(git describe --tags --exact-match 2>/dev/null || true)"
+          if [ -z "$TAG" ]; then
+            DATE="$(date -u +'%Y.%m.%d')"
+            SHORTSHA="$(git rev-parse --short HEAD)"
+            TAG="v${DATE}+${SHORTSHA}"
+            echo "No tag found; will create $TAG"
+          else
+            echo "Found tag: $TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Read Addon Name
+        id: name
+        shell: bash
+        run: |
+          # Try to infer the addon folder name from the top-level .toc (common WoW layout)
+          # Fallback to repo name if not found.
+          ADDON_NAME="$(basename "$(git rev-parse --show-toplevel)")"
+          TOC_CANDIDATE="$(ls -1 *.toc 2>/dev/null | head -n 1 || true)"
+          if [ -n "$TOC_CANDIDATE" ]; then
+            # Folder name should match the addon folder; many repos use the toc filename.
+            ADDON_NAME="${TOC_CANDIDATE%.toc}"
+          fi
+          echo "addon=$ADDON_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Build zip (git archive)
+        shell: bash
+        run: |
+          VERSION="${{ steps.ver.outputs.tag }}"
+          ADDON="${{ steps.name.outputs.addon }}"
+          ZIP_NAME="${ADDON}-${VERSION}.zip"
+          echo "Building $ZIP_NAME"
+          git archive --format=zip --output "$ZIP_NAME" HEAD
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.ver.outputs.tag }}"
+          # If the tag didn't exist, 'gh release create' will create it.
+          # Notes include a link to the commit.
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "Automated release for $VERSION (commit $GITHUB_SHA)"
+
+      - name: Upload zip asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${{ steps.ver.outputs.tag }}" "$ZIP_NAME"
