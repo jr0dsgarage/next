@@ -281,9 +281,7 @@ function addon:UpdateDebugFrame(results)
             filteredCount = filteredCount + 1
         end
     end
-        frame.editBox = editBox
-        frame.scroll = scroll
-        frame.resizeHandle = resizeHandle
+
     if filteredCount > 0 then
         lines[#lines + 1] = "Filtered units: " .. filteredCount
     end
