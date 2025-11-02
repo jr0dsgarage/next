@@ -47,6 +47,9 @@ local function resolveHighlightColor(info)
     if reason == "World Quest" and NextTargetDB.worldQuestColor then
         return NextTargetDB.worldQuestColor
     end
+    if reason == "Bonus Objective" and NextTargetDB.bonusObjectiveColor then
+        return NextTargetDB.bonusObjectiveColor
+    end
     if reason == "Quest Objective" and NextTargetDB.questObjectiveColor then
         return NextTargetDB.questObjectiveColor
     end

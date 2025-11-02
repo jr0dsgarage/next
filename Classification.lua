@@ -380,11 +380,16 @@ local function refreshQuestCache()
             questID = questID,
             questName = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or "Unknown Quest",
             isWorldQuest = false,
+            isBonusObjective = false,
             objectives = {},
             normalizedObjectives = {},
         }
 
         entry.isWorldQuest = determineWorldQuestFlag(questID, isWorldQuest)
+        
+        if questUtilsIsBonusObjective and questUtilsIsBonusObjective(questID) then
+            entry.isBonusObjective = true
+        end
 
         if C_QuestLog.GetQuestObjectives then
             local objectives = C_QuestLog.GetQuestObjectives(questID)
@@ -491,14 +496,14 @@ local function objectiveMatches(unit, unitName, tooltipLines, questEntries)
         if entry.questID and unit and unitIsRelatedToQuest then
             local related = unitIsRelatedToQuest(unit, entry.questID)
             if related then
-                return true, entry.isWorldQuest, entry.questName, entry.questID
+                return true, entry.isWorldQuest, entry.isBonusObjective, entry.questName, entry.questID
             end
         end
 
         if entry.normalizedObjectives and unitNameNormalized then
             for _, normalizedObjective in ipairs(entry.normalizedObjectives) do
                 if normalizedObjective and normalizedObjective:find(unitNameNormalized, 1, true) then
-                    return true, entry.isWorldQuest, entry.questName, entry.questID
+                    return true, entry.isWorldQuest, entry.isBonusObjective, entry.questName, entry.questID
                 end
             end
         end
@@ -509,7 +514,7 @@ local function objectiveMatches(unit, unitName, tooltipLines, questEntries)
                 for _, tooltipLine in ipairs(highlightedTooltipLines) do
                     for _, normalizedObjective in ipairs(entry.normalizedObjectives) do
                         if normalizedObjective and (normalizedObjective:find(tooltipLine, 1, true) or tooltipLine:find(normalizedObjective, 1, true)) then
-                            return true, entry.isWorldQuest, entry.questName, entry.questID
+                            return true, entry.isWorldQuest, entry.isBonusObjective, entry.questName, entry.questID
                         end
                     end
                 end
@@ -517,7 +522,7 @@ local function objectiveMatches(unit, unitName, tooltipLines, questEntries)
         end
     end
 
-    return false, false, nil, nil
+    return false, false, false, nil, nil
 end
 
 local function classifyUnit(unitData)
@@ -541,7 +546,7 @@ local function classifyUnit(unitData)
 
     local tooltipInfo = parseTooltip(unit)
     local questEntries = refreshQuestCache()
-    local hasObjective, isWorldQuest, questName, questID = objectiveMatches(unit, unitName, tooltipInfo.lines, questEntries)
+    local hasObjective, isWorldQuest, isBonusObjective, questName, questID = objectiveMatches(unit, unitName, tooltipInfo.lines, questEntries)
     local mythicStatus = getMythicScenarioStatus()
     local inChallengeMode = mythicStatus and mythicStatus.isActive
     local hasSoftTarget = hasQuestItemIcon(unit)
@@ -559,7 +564,13 @@ local function classifyUnit(unitData)
     if hasSoftTarget then
         reason = "Has Quest Item"
     elseif hasObjective or tooltipInfo.hasQuestObjective then
-        reason = isWorldQuest and "World Quest" or "Quest Objective"
+        if isBonusObjective then
+            reason = "Bonus Objective"
+        elseif isWorldQuest then
+            reason = "World Quest"
+        else
+            reason = "Quest Objective"
+        end
     end
 
     if not reason and inChallengeMode then
@@ -605,6 +616,7 @@ local function classifyUnit(unitData)
         questID = questID,
         tooltipLines = tooltipInfo.lines,
         isWorldQuest = isWorldQuest,
+        isBonusObjective = isBonusObjective,
         hasSoftTarget = hasSoftTarget,
         isQuestBoss = isQuestBoss,
         hasQuestObjectiveMatch = hasObjective,

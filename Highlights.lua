@@ -97,6 +97,14 @@ local function determineStyle(result, currentGuid)
             mode = NextTargetDB.questItemStyle or addon:GetDefault("questItemStyle") or "outline",
             origin = "questItem",
         }
+    elseif result.reason == "Bonus Objective" and NextTargetDB.bonusObjectiveEnabled then
+        baseStyle = {
+            color = NextTargetDB.bonusObjectiveColor,
+            thickness = NextTargetDB.bonusObjectiveThickness,
+            offset = NextTargetDB.bonusObjectiveOffset,
+            mode = NextTargetDB.bonusObjectiveStyle or addon:GetDefault("bonusObjectiveStyle") or "outline",
+            origin = "bonusObjective",
+        }
     elseif result.reason == "World Quest" and NextTargetDB.worldQuestEnabled then
         baseStyle = {
             color = NextTargetDB.worldQuestColor,

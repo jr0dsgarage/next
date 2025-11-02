@@ -25,6 +25,11 @@ local DEFAULTS = {
     worldQuestThickness = 3,
     worldQuestOffset = 2,
     worldQuestStyle = "outline",
+    bonusObjectiveEnabled = true,
+    bonusObjectiveColor = { r = 1, g = 0.41, b = 0.71, a = 0.9 },
+    bonusObjectiveThickness = 3,
+    bonusObjectiveOffset = 2,
+    bonusObjectiveStyle = "outline",
     mythicObjectiveEnabled = true,
     mythicObjectiveColor = { r = 0.58, g = 0.23, b = 0.86, a = 0.9 },
     mythicObjectiveThickness = 3,
@@ -54,6 +59,7 @@ local STYLE_KEYS = {
     "questObjectiveStyle",
     "questItemStyle",
     "worldQuestStyle",
+    "bonusObjectiveStyle",
     "mythicObjectiveStyle",
 }
 
