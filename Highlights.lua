@@ -33,7 +33,7 @@ local function acquireNameplate(unitData)
     return nil
 end
 
-local function applyBorderTextures(self, healthBar, style)
+local function applyOutlineHighlight(self, healthBar, style, plate)
     local color = style.color
     local thickness = style.thickness or 2
     local offset = style.offset or 1
@@ -79,7 +79,12 @@ local function applyBorderTextures(self, healthBar, style)
     createCorner("BOTTOMLEFT", "TOPRIGHT", offset, offset)
     createCorner("TOPRIGHT", "BOTTOMLEFT", -offset, -offset)
     createCorner("TOPLEFT", "BOTTOMRIGHT", offset, -offset)
+
 end
+
+local highlightHandlers = {
+    outline = applyOutlineHighlight,
+}
 
 local function determineStyle(result, currentGuid)
     local baseStyle
@@ -89,6 +94,7 @@ local function determineStyle(result, currentGuid)
             color = NextTargetDB.questItemColor,
             thickness = NextTargetDB.questItemThickness,
             offset = NextTargetDB.questItemOffset,
+            mode = NextTargetDB.questItemStyle or addon:GetDefault("questItemStyle") or "outline",
             origin = "questItem",
         }
     elseif result.reason == "World Quest" and NextTargetDB.worldQuestEnabled then
@@ -96,6 +102,7 @@ local function determineStyle(result, currentGuid)
             color = NextTargetDB.worldQuestColor,
             thickness = NextTargetDB.worldQuestThickness,
             offset = NextTargetDB.worldQuestOffset,
+            mode = NextTargetDB.worldQuestStyle or addon:GetDefault("worldQuestStyle") or "outline",
             origin = "worldQuest",
         }
     elseif result.reason == "Quest Objective" and NextTargetDB.questObjectiveEnabled then
@@ -103,7 +110,16 @@ local function determineStyle(result, currentGuid)
             color = NextTargetDB.questObjectiveColor,
             thickness = NextTargetDB.questObjectiveThickness,
             offset = NextTargetDB.questObjectiveOffset,
+            mode = NextTargetDB.questObjectiveStyle or addon:GetDefault("questObjectiveStyle") or "outline",
             origin = "questObjective",
+        }
+    elseif result.reason == "Mythic Objective" and NextTargetDB.mythicObjectiveEnabled then
+        baseStyle = {
+            color = NextTargetDB.mythicObjectiveColor,
+            thickness = NextTargetDB.mythicObjectiveThickness,
+            offset = NextTargetDB.mythicObjectiveOffset,
+            mode = NextTargetDB.mythicObjectiveStyle or addon:GetDefault("mythicObjectiveStyle") or "outline",
+            origin = "mythicObjective",
         }
     end
 
@@ -111,11 +127,20 @@ local function determineStyle(result, currentGuid)
         return nil
     end
 
+    if baseStyle.mode == "border" then
+        baseStyle.mode = "outline"
+    end
+
     if result.guid == currentGuid and NextTargetDB.currentTargetEnabled then
+        local mode = NextTargetDB.currentTargetStyle or addon:GetDefault("currentTargetStyle") or (baseStyle and baseStyle.mode) or "outline"
+        if mode == "border" then
+            mode = "outline"
+        end
         return {
             color = NextTargetDB.currentTargetColor,
             thickness = NextTargetDB.currentTargetThickness,
             offset = NextTargetDB.currentTargetOffset,
+            mode = mode,
             origin = "currentTarget",
             baseReason = result.reason,
         }
@@ -155,7 +180,13 @@ function addon:CollectHighlights()
                 local plate = acquireNameplate(classification)
                 local healthBar = resolveHealthBar(plate)
                 if healthBar then
-                    applyBorderTextures(self, healthBar, style)
+                    local mode = style.mode or "outline"
+                    if mode == "border" then
+                        mode = "outline"
+                        style.mode = "outline"
+                    end
+                    local handler = highlightHandlers[mode] or applyOutlineHighlight
+                    handler(self, healthBar, style)
                 end
             elseif classification.reason then
                 if not classification.note then

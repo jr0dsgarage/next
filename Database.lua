@@ -9,18 +9,27 @@ local DEFAULTS = {
     currentTargetColor = { r = 0, g = 1, b = 0, a = 0.8 },
     currentTargetThickness = 2,
     currentTargetOffset = 1,
+    currentTargetStyle = "outline",
     questObjectiveEnabled = true,
     questObjectiveColor = { r = 1, g = 1, b = 0, a = 0.9 },
     questObjectiveThickness = 3,
     questObjectiveOffset = 2,
+    questObjectiveStyle = "outline",
     questItemEnabled = true,
     questItemColor = { r = 1, g = 0, b = 1, a = 0.9 },
     questItemThickness = 3,
     questItemOffset = 2,
+    questItemStyle = "outline",
     worldQuestEnabled = true,
     worldQuestColor = { r = 0.3, g = 0.7, b = 1, a = 0.9 },
     worldQuestThickness = 3,
     worldQuestOffset = 2,
+    worldQuestStyle = "outline",
+    mythicObjectiveEnabled = true,
+    mythicObjectiveColor = { r = 0.58, g = 0.23, b = 0.86, a = 0.9 },
+    mythicObjectiveThickness = 3,
+    mythicObjectiveOffset = 2,
+    mythicObjectiveStyle = "outline",
 }
 
 addon.DEFAULTS = DEFAULTS
@@ -38,6 +47,14 @@ local MIGRATION_MAP = {
     questItemBorderOffset = "questItemOffset",
     worldQuestBorderThickness = "worldQuestThickness",
     worldQuestBorderOffset = "worldQuestOffset",
+}
+
+local STYLE_KEYS = {
+    "currentTargetStyle",
+    "questObjectiveStyle",
+    "questItemStyle",
+    "worldQuestStyle",
+    "mythicObjectiveStyle",
 }
 
 local function cloneTable(source)
@@ -103,6 +120,12 @@ function addon:InitializeDB()
     end
 
     mergeDefaults(NextTargetDB, DEFAULTS)
+
+    for _, styleKey in ipairs(STYLE_KEYS) do
+        if NextTargetDB[styleKey] == "border" then
+            NextTargetDB[styleKey] = "outline"
+        end
+    end
 
     NextTargetDB.rareEliteEnabled = nil
     NextTargetDB.rareEliteColor = nil

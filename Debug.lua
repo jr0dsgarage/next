@@ -50,6 +50,9 @@ local function resolveHighlightColor(info)
     if reason == "Quest Objective" and NextTargetDB.questObjectiveColor then
         return NextTargetDB.questObjectiveColor
     end
+    if reason == "Mythic Objective" and NextTargetDB.mythicObjectiveColor then
+        return NextTargetDB.mythicObjectiveColor
+    end
 
     if info.highlightStyle and info.highlightStyle.color then
         return info.highlightStyle.color
@@ -93,6 +96,16 @@ local function ensureDebugFrame()
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", 14, -12)
     title:SetText("next debug")
+
+    local config = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    config:SetSize(80, 22)
+    config:SetPoint("TOPRIGHT", -126, -12)
+    config:SetText("Config")
+    config:SetScript("OnClick", function()
+        if addon.OpenSettings then
+            addon:OpenSettings()
+        end
+    end)
 
     local reload = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     reload:SetSize(80, 22)
@@ -168,6 +181,21 @@ local function questLabelFor(info)
     end
     if info.hasSoftTarget then
         return "Quest Item"
+    end
+    if info.isMythicBoss then
+        if info.mythicBossName and info.mythicBossName ~= "" then
+            return string.format("Mythic Boss: %s", info.mythicBossName)
+        end
+        return "Mythic Boss"
+    end
+    if info.isMythicEnemyForces then
+        if info.mythicEnemyForcesTotal and info.mythicEnemyForcesTotal > 0 then
+            return string.format("Enemy Forces (%d/%d)", info.mythicEnemyForcesProgress or 0, info.mythicEnemyForcesTotal)
+        end
+        return "Enemy Forces"
+    end
+    if info.reason == "Mythic Objective" or info.isMythicObjective then
+        return "Mythic Objective"
     end
     return "n/a"
 end

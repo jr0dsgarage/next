@@ -23,7 +23,21 @@ local highlightOptions = {
     { key = "questObjective", label = "Quest Objectives" },
     { key = "questItem", label = "Quest Items" },
     { key = "worldQuest", label = "World Quests" },
+    { key = "mythicObjective", label = "Mythic Dungeon Objectives" },
 }
+
+local highlightStyleChoices = {
+    { value = "outline", label = "Outline" },
+}
+
+local function styleLabelFor(value)
+    for _, choice in ipairs(highlightStyleChoices) do
+        if choice.value == value then
+            return choice.label
+        end
+    end
+    return value or "Outline"
+end
 
 local function accentuate()
     if addon.ClearHighlights then
@@ -71,19 +85,24 @@ local function useColorPicker(color, onChanged)
 end
 
 local function createHighlightRow(anchor, option, index)
-    local rowOffset = -12 - (index - 1) * 44
+    local rowOffset = -12 - (index - 1) * 56
 
     local label = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, rowOffset)
-    label:SetWidth(150)
+    label:SetWidth(140)
     label:SetJustifyH("LEFT")
     label:SetText(option.label)
 
     local checkbox = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
-    checkbox:SetPoint("LEFT", label, "RIGHT", 8, 0)
+    checkbox:SetPoint("LEFT", label, "RIGHT", 2, 0)
+
+    local dropdown = CreateFrame("Frame", nil, content, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("LEFT", checkbox, "RIGHT", -4, -2)
+    UIDropDownMenu_SetWidth(dropdown, 120)
+    UIDropDownMenu_JustifyText(dropdown, "LEFT")
 
     local colorButton = CreateFrame("Button", nil, content)
-    colorButton:SetPoint("LEFT", checkbox, "RIGHT", 10, 0)
+    colorButton:SetPoint("LEFT", dropdown, "RIGHT", 6, 0)
     colorButton:SetSize(26, 26)
 
     local border = colorButton:CreateTexture(nil, "BACKGROUND")
@@ -96,32 +115,35 @@ local function createHighlightRow(anchor, option, index)
     colorButton.swatch = swatch
 
     local thickness = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
-    thickness:SetPoint("LEFT", colorButton, "RIGHT", 30, 0)
+    thickness:SetPoint("LEFT", colorButton, "RIGHT", 18, 0)
+    thickness:SetPoint("CENTER", label, "CENTER", 0, -2)
     thickness:SetMinMaxValues(1, 5)
     thickness:SetValueStep(1)
     thickness:SetObeyStepOnDrag(true)
-    thickness:SetWidth(140)
+    thickness:SetWidth(110)
     thickness.Low:SetText("1")
     thickness.High:SetText("5")
     thickness.Text:ClearAllPoints()
-    thickness.Text:SetPoint("BOTTOM", thickness, "TOP", 0, 4)
+    thickness.Text:SetPoint("BOTTOM", thickness, "TOP", 0, 2)
     thickness.Text:SetJustifyH("CENTER")
 
     local offset = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
-    offset:SetPoint("LEFT", thickness, "RIGHT", 30, 0)
+    offset:SetPoint("LEFT", thickness, "RIGHT", 18, 0)
+    offset:SetPoint("CENTER", thickness, "CENTER", 0, 0)
     offset:SetMinMaxValues(0, 5)
     offset:SetValueStep(1)
     offset:SetObeyStepOnDrag(true)
-    offset:SetWidth(140)
+    offset:SetWidth(110)
     offset.Low:SetText("0")
     offset.High:SetText("5")
     offset.Text:ClearAllPoints()
-    offset.Text:SetPoint("BOTTOM", offset, "TOP", 0, 4)
+    offset.Text:SetPoint("BOTTOM", offset, "TOP", 0, 2)
     offset.Text:SetJustifyH("CENTER")
 
     return {
         label = label,
         checkbox = checkbox,
+        dropdown = dropdown,
         colorButton = colorButton,
         thickness = thickness,
         offset = offset,
@@ -133,6 +155,7 @@ local function bindHighlightRow(option, row)
     local colorKey = option.key .. "Color"
     local thicknessKey = option.key .. "Thickness"
     local offsetKey = option.key .. "Offset"
+    local styleKey = option.key .. "Style"
 
     row.checkbox:SetScript("OnClick", function(self)
         NextTargetDB[enabledKey] = self:GetChecked()
@@ -170,6 +193,26 @@ local function bindHighlightRow(option, row)
         self.Text:SetText(string.format("Offset: %d", rounded))
         accentuate()
     end)
+
+    UIDropDownMenu_Initialize(row.dropdown, function(_, level)
+        if level ~= 1 then
+            return
+        end
+    local current = NextTargetDB[styleKey] or addon:GetDefault(styleKey) or "outline"
+        for _, choice in ipairs(highlightStyleChoices) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = choice.label
+            info.value = choice.value
+            info.func = function()
+                NextTargetDB[styleKey] = choice.value
+                UIDropDownMenu_SetSelectedValue(row.dropdown, choice.value)
+                UIDropDownMenu_SetText(row.dropdown, choice.label)
+                accentuate()
+            end
+            info.checked = (current == choice.value)
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
 end
 
 local function refreshHighlightRow(option, row)
@@ -177,6 +220,7 @@ local function refreshHighlightRow(option, row)
     local thicknessKey = option.key .. "Thickness"
     local offsetKey = option.key .. "Offset"
     local enabledKey = option.key .. "Enabled"
+    local styleKey = option.key .. "Style"
 
     row.checkbox:SetChecked(NextTargetDB[enabledKey] ~= false)
 
@@ -198,6 +242,11 @@ local function refreshHighlightRow(option, row)
     row.offset:SetValue(offsetValue)
     row.offset.Text:SetText(string.format("Offset: %d", offsetValue))
     row.offset.isUpdating = false
+
+    local styleValue = NextTargetDB[styleKey] or addon:GetDefault(styleKey) or "outline"
+    NextTargetDB[styleKey] = styleValue
+    UIDropDownMenu_SetSelectedValue(row.dropdown, styleValue)
+    UIDropDownMenu_SetText(row.dropdown, styleLabelFor(styleValue))
 end
 
 local function buildSettingsUI()
@@ -237,7 +286,7 @@ local function buildSettingsUI()
         ui.highlightRows[option.key] = row
     end
 
-    content:SetHeight(260 + #highlightOptions * 50)
+    content:SetHeight(220 + #highlightOptions * 56)
 end
 
 panel:SetScript("OnShow", function()
@@ -278,6 +327,7 @@ panel.default = function()
         NextTargetDB[option.key .. "Color"] = addon:GetDefault(option.key .. "Color")
         NextTargetDB[option.key .. "Thickness"] = addon:GetDefault(option.key .. "Thickness")
         NextTargetDB[option.key .. "Offset"] = addon:GetDefault(option.key .. "Offset")
+        NextTargetDB[option.key .. "Style"] = addon:GetDefault(option.key .. "Style")
     end
 
     panel.refresh()
