@@ -7,8 +7,8 @@ next is a World of Warcraft addon that helps you decide your next best target by
 - **Quest Highlighting:**
   - Highlights nameplates for mobs relevant to your active quests:
     - Quest objectives
-    - Quest items (soft target icon)
     - World quest targets
+    - Mythic+ Enemy Forces & Bosses
 - **Customizable Styles:**
   - Configure highlight color, thickness, and offset for each quest type.
   - Settings panel available in Interface > AddOns or via `/next config`.
@@ -19,9 +19,6 @@ next is a World of Warcraft addon that helps you decide your next best target by
   - `/next config` — Open settings panel
   - `/next toggle` — Enable/disable addon
   - `/next debug` — Toggle debug window
-- **Settings:**
-  - Adjust highlight styles for kill/fetch quest targets, quest item targets, and world quests targets
-  - Enable/disable debug panel and combat-only mode
 
 ## Installation
 
