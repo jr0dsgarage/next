@@ -550,21 +550,21 @@ local function buildPreviewSection()
     borderFrame:SetBackdropColor(0.08, 0.02, 0.02, 1)
     borderFrame:SetBackdropBorderColor(0, 0, 0, 1)
 
-    local healthBar = CreateFrame("StatusBar", nil, borderFrame)
-    healthBar:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", 2, -1)
-    healthBar:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", -2, 1)
-    healthBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-    healthBar:SetStatusBarColor(0.78, 0.06, 0.1, 1)
-    healthBar:SetMinMaxValues(0, 100)
-    healthBar:SetValue(100)
+    local healthFill = CreateFrame("StatusBar", nil, borderFrame)
+    healthFill:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", 2, -1)
+    healthFill:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", -2, 1)
+    healthFill:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    healthFill:SetStatusBarColor(0.78, 0.06, 0.1, 1)
+    healthFill:SetMinMaxValues(0, 100)
+    healthFill:SetValue(100)
 
-    local background = healthBar:CreateTexture(nil, "BACKGROUND")
+    local background = healthFill:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints()
     background:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
     background:SetVertexColor(0.25, 0, 0, 0.8)
 
-    ui.preview.healthBar = borderFrame
-    ui.preview.healthFill = healthBar
+    ui.preview.outerFrame = borderFrame
+    ui.preview.healthBar = healthFill
 
     ensurePreviewHighlights()
 end
