@@ -37,33 +37,13 @@ jobs:
         shell: bash
         if: steps.tagcheck.outputs.release == 'true'
         run: |
-          # If the push includes/points at a tag (e.g. v1.2.3), use it.
-          # FALLBACK: generate a date+shortsha version.
-          TAG="$(git describe --tags --exact-match 2>/dev/null || true)"
+          TAG="${GITHUB_REF#refs/tags/}"
           if [ -z "$TAG" ]; then
-            DATE="$(date -u +'%Y.%m.%d')"
-            SHORTSHA="$(git rev-parse --short HEAD)"
-            TAG="v${DATE}+${SHORTSHA}"
-            echo "No tag found; will create $TAG"
-          else
-            echo "Found tag: $TAG"
+            echo "::error::Unable to determine tag name from ref ${GITHUB_REF}"
+            exit 1
           fi
+          echo "Found tag: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Read Addon Name
-        id: name
-        shell: bash
-        if: steps.tagcheck.outputs.release == 'true'
-        run: |
-          # Try to infer the addon folder name from the top-level .toc (common WoW layout)
-          # Fallback to repo name if not found.
-          ADDON_NAME="$(basename "$(git rev-parse --show-toplevel)")"
-          TOC_CANDIDATE="$(ls -1 *.toc 2>/dev/null | head -n 1 || true)"
-          if [ -n "$TOC_CANDIDATE" ]; then
-            # Folder name should match the addon folder; many repos use the toc filename.
-            ADDON_NAME="${TOC_CANDIDATE%.toc}"
-          fi
-          echo "addon=$ADDON_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Build zip (git archive)
         if: steps.tagcheck.outputs.release == 'true'
@@ -77,21 +57,9 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.tagcheck.outputs.release == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          VERSION="${{ steps.ver.outputs.tag }}"
-          # If the tag didn't exist, 'gh release create' will create it.
-          # Notes include a link to the commit.
-          gh release create "$VERSION" \
-            --title "$VERSION" \
-            --notes "Automated release for $VERSION (commit $GITHUB_SHA)"
-
-      - name: Upload zip asset
-        if: steps.tagcheck.outputs.release == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh release upload "${{ steps.ver.outputs.tag }}" "$ZIP_NAME"
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          files: next.zip
+          prerelease: false
