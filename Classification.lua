@@ -37,17 +37,13 @@ local function normalizeText(text)
         return nil
     end
 
-    text = strgsub(text, "%b()", " ")
-    text = strgsub(text, "[%[%]]", " ")
-    text = strgsub(text, "[%p%c]", " ")
-    text = strlower(strgsub(text, "%s+", " "))
-    text = trim(text)
+    -- Combine multiple pattern replacements and normalize whitespace
+    text = strgsub(text, "[%(%)]", " ")  -- Remove parentheses
+    text = strgsub(text, "[%[%]%p%c]", " ")  -- Remove brackets, punctuation, and control chars in one pass
+    text = strlower(text)
+    text = trim(strgsub(text, "%s+", " "))  -- Normalize whitespace and trim in one expression
 
-    if text == "" then
-        return nil
-    end
-
-    return text
+    return text ~= "" and text or nil
 end
 
 local function normalizeLines(lines)
@@ -89,10 +85,13 @@ tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
 local QUEST_CACHE_SECONDS = 5
 local UNIT_CACHE_SECONDS = 2
 local MYTHIC_SCENARIO_CACHE_SECONDS = 0.5
+local CHALLENGE_MODE_CACHE_SECONDS = 1
 
 local questCache = { timestamp = 0, entries = {} }
 local unitCache = {}
 local mythicScenarioCache = { timestamp = 0, status = {} }
+local tooltipTextCache = {}
+local challengeModeCache = { timestamp = 0, isActive = false }
 
 local function resetCaches()
     questCache.timestamp = 0
@@ -100,6 +99,9 @@ local function resetCaches()
     unitCache = {}
     mythicScenarioCache.timestamp = 0
     mythicScenarioCache.status = {}
+    wipeTable(tooltipTextCache)
+    challengeModeCache.timestamp = 0
+    challengeModeCache.isActive = false
 end
 
 local function isInMythicPlusInstance()
@@ -125,38 +127,41 @@ local function isInMythicPlusInstance()
 end
 
 local function isChallengeModeActive()
+    -- Check cache first
+    local now = GetTime()
+    if challengeModeCache.timestamp > 0 and (now - challengeModeCache.timestamp) < CHALLENGE_MODE_CACHE_SECONDS then
+        return challengeModeCache.isActive
+    end
+
+    -- Quick check: are we even in a mythic+ instance?
     if not isInMythicPlusInstance() then
+        challengeModeCache.timestamp = now
+        challengeModeCache.isActive = false
         return false
     end
 
+    local isActive = false
+
+    -- Primary check: Modern API (most reliable)
     if C_MythicPlus and C_MythicPlus.IsMythicPlusActive and C_MythicPlus.IsMythicPlusActive() then
-        return true
-    end
-
-    if not C_ChallengeMode then
-        return false
-    end
-
-    local keystoneMapID, keystoneLevel
-    if C_ChallengeMode.GetActiveKeystoneInfo then
-        keystoneMapID, keystoneLevel = C_ChallengeMode.GetActiveKeystoneInfo()
-        if keystoneMapID and keystoneMapID > 0 and keystoneLevel and keystoneLevel > 0 then
-            return true
+        isActive = true
+    -- Fallback: Challenge mode API
+    elseif C_ChallengeMode then
+        -- Try IsChallengeModeActive first (simplest check)
+        if C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
+            isActive = true
+        -- Try GetActiveKeystoneInfo (more detailed info)
+        elseif C_ChallengeMode.GetActiveKeystoneInfo then
+            local keystoneMapID, keystoneLevel = C_ChallengeMode.GetActiveKeystoneInfo()
+            if keystoneMapID and keystoneMapID > 0 and keystoneLevel and keystoneLevel > 0 then
+                isActive = true
+            end
         end
     end
 
-    if C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
-        return true
-    end
-
-    if C_ChallengeMode.GetActiveChallengeMapID then
-        local mapID = C_ChallengeMode.GetActiveChallengeMapID()
-        if mapID and mapID > 0 and keystoneLevel and keystoneLevel > 0 then
-            return true
-        end
-    end
-
-    return false
+    challengeModeCache.timestamp = now
+    challengeModeCache.isActive = isActive
+    return isActive
 end
 
 local function getMythicScenarioStatus()
@@ -241,6 +246,29 @@ local function getMythicScenarioStatus()
     return status
 end
 
+local function getCachedTooltipText(text)
+    if not text or text == "" then
+        return nil
+    end
+    
+    local cached = tooltipTextCache[text]
+    if cached then
+        return cached
+    end
+    
+    local sanitized = stripColorCodes(text)
+    if sanitized then
+        sanitized = trim(strgsub(sanitized, "%s+", " "))
+    end
+    
+    if sanitized and sanitized ~= "" then
+        tooltipTextCache[text] = sanitized
+        return sanitized
+    end
+    
+    return nil
+end
+
 local function parseTooltip(unit)
     local info = {
         hasQuestObjective = false,
@@ -259,26 +287,24 @@ local function parseTooltip(unit)
         if line then
             local text = line:GetText()
             if text and text ~= "" then
-                local sanitized = stripColorCodes(text)
-                if sanitized then
-                    sanitized = trim(strgsub(sanitized, "%s+", " "))
-                end
+                local sanitized = getCachedTooltipText(text)
 
-                if sanitized and sanitized ~= "" and not uniqueLines[sanitized] then
+                if sanitized and not uniqueLines[sanitized] then
                     uniqueLines[sanitized] = true
                     info.lines[#info.lines + 1] = sanitized
                 end
 
-                local toEvaluate = sanitized or text
-                local current, total = toEvaluate:match("(%d+)%s*/%s*(%d+)")
-                if current and total then
-                    local currentNum = tonumber(current)
-                    local totalNum = tonumber(total)
-                    if currentNum and totalNum then
-                        if currentNum >= totalNum then
-                            info.hasCompletedObjective = true
-                        else
-                            info.hasQuestObjective = true
+                if sanitized then
+                    local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
+                    if current and total then
+                        local currentNum = tonumber(current)
+                        local totalNum = tonumber(total)
+                        if currentNum and totalNum then
+                            if currentNum >= totalNum then
+                                info.hasCompletedObjective = true
+                            else
+                                info.hasQuestObjective = true
+                            end
                         end
                     end
                 end
@@ -310,13 +336,12 @@ local function refreshQuestCache()
         return questCache.entries
     end
 
-    questCache.timestamp = now
-    wipeTable(questCache.entries)
-
     if not C_QuestLog or not C_QuestLog.GetNumQuestLogEntries or not GetQuestObjectiveInfo then
         return questCache.entries
     end
 
+    -- Build new cache in local table to prevent race conditions
+    local newEntries = {}
     local addedQuestIDs = {}
 
     local function determineWorldQuestFlag(questID, seedFlag)
@@ -362,7 +387,7 @@ local function refreshQuestCache()
         end
         addedQuestIDs[entry.questID] = true
         if #entry.objectives > 0 then
-            questCache.entries[#questCache.entries + 1] = entry
+            newEntries[#newEntries + 1] = entry
         end
     end
 
@@ -484,6 +509,10 @@ local function refreshQuestCache()
         end
     end
 
+    -- Atomic update: assign new entries and timestamp together
+    questCache.entries = newEntries
+    questCache.timestamp = now
+    
     return questCache.entries
 end
 

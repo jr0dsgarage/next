@@ -118,41 +118,48 @@ addon.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 SLASH_NEXT1 = "/next"
 
 SlashCmdList.NEXT = function(msg)
-    msg = sanitizeCommand(msg or "")
-    msg = msg:lower()
+    -- Wrap in pcall to prevent errors from breaking slash command system
+    local success, err = pcall(function()
+        msg = sanitizeCommand(msg or "")
+        msg = msg:lower()
 
-    if msg == "" then
-        addon:OpenSettings()
+        if msg == "" then
+            addon:OpenSettings()
+            print("|cFF00FF00[next]|r commands:")
+            print("  |cFFFFFF00/next config|r - open settings")
+            print("  |cFFFFFF00/next toggle|r - enable or disable the addon")
+            return
+        end
+
+        if msg == "config" or msg == "options" or msg == "settings" then
+            addon:OpenSettings()
+            return
+        end
+
+        if msg == "toggle" then
+            NextTargetDB.enabled = not NextTargetDB.enabled
+            print(string.format("|cFF00FF00[next]|r addon %s", NextTargetDB.enabled and "enabled" or "disabled"))
+            addon:RequestUpdate()
+            return
+        end
+
+        if msg == "debug" then
+            NextTargetDB.debugMode = not NextTargetDB.debugMode
+            if NextTargetDB.debugMode then
+                addon:ShowDebugFrame()
+            else
+                addon:HideDebugFrame()
+            end
+            addon:RequestUpdate()
+            return
+        end
+
         print("|cFF00FF00[next]|r commands:")
         print("  |cFFFFFF00/next config|r - open settings")
         print("  |cFFFFFF00/next toggle|r - enable or disable the addon")
-        return
+    end)
+    
+    if not success then
+        print("|cFFFF0000[next]|r Error processing command: " .. tostring(err))
     end
-
-    if msg == "config" or msg == "options" or msg == "settings" then
-        addon:OpenSettings()
-        return
-    end
-
-    if msg == "toggle" then
-        NextTargetDB.enabled = not NextTargetDB.enabled
-        print(string.format("|cFF00FF00[next]|r addon %s", NextTargetDB.enabled and "enabled" or "disabled"))
-        addon:RequestUpdate()
-        return
-    end
-
-    if msg == "debug" then
-        NextTargetDB.debugMode = not NextTargetDB.debugMode
-        if NextTargetDB.debugMode then
-            addon:ShowDebugFrame()
-        else
-            addon:HideDebugFrame()
-        end
-        addon:RequestUpdate()
-        return
-    end
-
-    print("|cFF00FF00[next]|r commands:")
-    print("  |cFFFFFF00/next config|r - open settings")
-    print("  |cFFFFFF00/next toggle|r - enable or disable the addon")
 end

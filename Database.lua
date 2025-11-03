@@ -1,6 +1,9 @@
 ---@diagnostic disable: undefined-global
 local addonName, addon = ...
 
+-- Current database version - increment when migrations are added
+local DB_VERSION = 1
+
 local DEFAULTS = {
     enabled = true,
     debugMode = false,
@@ -118,32 +121,44 @@ end
 function addon:InitializeDB()
     NextTargetDB = NextTargetDB or {}
 
-    for oldKey, newKey in pairs(MIGRATION_MAP) do
-        if NextTargetDB[oldKey] ~= nil and NextTargetDB[newKey] == nil then
-            NextTargetDB[newKey] = NextTargetDB[oldKey]
+    -- Only run migrations if database version is outdated or missing
+    local currentVersion = NextTargetDB.dbVersion or 0
+    if currentVersion < DB_VERSION then
+        -- Migration: Rename old keys to new keys
+        for oldKey, newKey in pairs(MIGRATION_MAP) do
+            if NextTargetDB[oldKey] ~= nil and NextTargetDB[newKey] == nil then
+                NextTargetDB[newKey] = NextTargetDB[oldKey]
+            end
+            NextTargetDB[oldKey] = nil
         end
-        NextTargetDB[oldKey] = nil
+
+        -- Migration: Rename "border" style to "outline"
+        for _, styleKey in ipairs(STYLE_KEYS) do
+            if NextTargetDB[styleKey] == "border" then
+                NextTargetDB[styleKey] = "outline"
+            end
+        end
+
+        -- Migration: Remove deprecated settings
+        NextTargetDB.rareEliteEnabled = nil
+        NextTargetDB.rareEliteColor = nil
+        NextTargetDB.rareEliteThickness = nil
+        NextTargetDB.rareEliteOffset = nil
+        NextTargetDB.onlyInCombat = nil
+
+        -- Migration: Fix old orange quest color to new yellow
+        local questColor = NextTargetDB.questObjectiveColor
+        if questColor and questColor.r == 1 and questColor.g == 0.5 and questColor.b == 0 then
+            questColor.r = DEFAULTS.questObjectiveColor.r
+            questColor.g = DEFAULTS.questObjectiveColor.g
+            questColor.b = DEFAULTS.questObjectiveColor.b
+            questColor.a = DEFAULTS.questObjectiveColor.a
+        end
+
+        -- Mark database as migrated
+        NextTargetDB.dbVersion = DB_VERSION
     end
 
+    -- Always merge in any new defaults (doesn't overwrite existing values)
     mergeDefaults(NextTargetDB, DEFAULTS)
-
-    for _, styleKey in ipairs(STYLE_KEYS) do
-        if NextTargetDB[styleKey] == "border" then
-            NextTargetDB[styleKey] = "outline"
-        end
-    end
-
-    NextTargetDB.rareEliteEnabled = nil
-    NextTargetDB.rareEliteColor = nil
-    NextTargetDB.rareEliteThickness = nil
-    NextTargetDB.rareEliteOffset = nil
-    NextTargetDB.onlyInCombat = nil
-
-    local questColor = NextTargetDB.questObjectiveColor
-    if questColor and questColor.r == 1 and questColor.g == 0.5 and questColor.b == 0 then
-        questColor.r = DEFAULTS.questObjectiveColor.r
-        questColor.g = DEFAULTS.questObjectiveColor.g
-        questColor.b = DEFAULTS.questObjectiveColor.b
-        questColor.a = DEFAULTS.questObjectiveColor.a
-    end
 end

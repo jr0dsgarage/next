@@ -3,6 +3,29 @@ local addonName, addon = ...
 
 local wipeTable = addon.WipeTable
 
+-- Texture pooling to avoid memory leaks from constant create/destroy
+addon.texturePool = addon.texturePool or {}
+
+local function acquireTexture()
+    local texture = table.remove(addon.texturePool)
+    if not texture then
+        texture = UIParent:CreateTexture(nil, "OVERLAY")
+        texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+    end
+    return texture
+end
+
+local function releaseTexture(texture)
+    if not texture then
+        return
+    end
+    texture:Hide()
+    texture:ClearAllPoints()
+    texture:SetParent(nil)
+    texture:SetVertexColor(1, 1, 1, 1)
+    table.insert(addon.texturePool, texture)
+end
+
 local function resolveHealthBar(plate)
     if not plate then
         return nil
@@ -39,8 +62,8 @@ local function applyOutlineHighlight(self, healthBar, style, plate)
     local offset = style.offset or 1
 
     local function createTexture(point, relativePoint, xOffset, yOffset, width, height)
-        local texture = healthBar:CreateTexture(nil, "OVERLAY")
-        texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+        local texture = acquireTexture()
+        texture:SetParent(healthBar)
         texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
         texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
         if width then
@@ -54,8 +77,8 @@ local function applyOutlineHighlight(self, healthBar, style, plate)
     end
 
     local function createCorner(point, relativePoint, xOffset, yOffset)
-        local texture = healthBar:CreateTexture(nil, "OVERLAY")
-        texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+        local texture = acquireTexture()
+        texture:SetParent(healthBar)
         texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
         texture:SetSize(thickness, thickness)
         texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
@@ -159,8 +182,7 @@ end
 
 function addon:ClearHighlights()
     for _, texture in ipairs(self.highlights) do
-        texture:Hide()
-        texture:SetParent(nil)
+        releaseTexture(texture)
     end
     wipeTable(self.highlights)
 end
