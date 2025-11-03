@@ -2,7 +2,8 @@ name: Build & Release WoW Addon
 
 on:
   push:
-    branches: [ "main" ]
+    tags:
+      - "*"
 
 permissions:
   contents: write   # required to create releases and upload assets
@@ -16,9 +17,25 @@ jobs:
         with:
           fetch-depth: 0   # we need tags/history to detect latest tag
 
+      - name: Ensure tag matches latest main
+        id: tagcheck
+        shell: bash
+        run: |
+          git fetch origin main --depth=1
+          TAG_COMMIT="$(git rev-parse HEAD)"
+          MAIN_COMMIT="$(git rev-parse origin/main)"
+          if [ "$TAG_COMMIT" = "$MAIN_COMMIT" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Tag commit matches latest main ($MAIN_COMMIT); continuing"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag commit $TAG_COMMIT does not match latest main $MAIN_COMMIT; skipping release"
+          fi
+
       - name: Determine version
         id: ver
         shell: bash
+        if: steps.tagcheck.outputs.release == 'true'
         run: |
           # If the push includes/points at a tag (e.g. v1.2.3), use it.
           # FALLBACK: generate a date+shortsha version.
@@ -36,6 +53,7 @@ jobs:
       - name: Read Addon Name
         id: name
         shell: bash
+        if: steps.tagcheck.outputs.release == 'true'
         run: |
           # Try to infer the addon folder name from the top-level .toc (common WoW layout)
           # Fallback to repo name if not found.
@@ -48,6 +66,7 @@ jobs:
           echo "addon=$ADDON_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Build zip (git archive)
+        if: steps.tagcheck.outputs.release == 'true'
         shell: bash
         run: |
           VERSION="${{ steps.ver.outputs.tag }}"
@@ -57,6 +76,7 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
+        if: steps.tagcheck.outputs.release == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -69,6 +89,7 @@ jobs:
             --notes "Automated release for $VERSION (commit $GITHUB_SHA)"
 
       - name: Upload zip asset
+        if: steps.tagcheck.outputs.release == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
