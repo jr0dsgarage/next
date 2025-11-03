@@ -37,17 +37,13 @@ local function normalizeText(text)
         return nil
     end
 
-    text = strgsub(text, "%b()", " ")
-    text = strgsub(text, "[%[%]]", " ")
-    text = strgsub(text, "[%p%c]", " ")
-    text = strlower(strgsub(text, "%s+", " "))
-    text = trim(text)
+    -- Combine multiple pattern replacements and normalize whitespace
+    text = strgsub(text, "[%(%)]", " ")  -- Remove parentheses
+    text = strgsub(text, "[%[%]%p%c]", " ")  -- Remove brackets, punctuation, and control chars in one pass
+    text = strlower(text)
+    text = trim(strgsub(text, "%s+", " "))  -- Normalize whitespace and trim in one expression
 
-    if text == "" then
-        return nil
-    end
-
-    return text
+    return text ~= "" and text or nil
 end
 
 local function normalizeLines(lines)
@@ -333,13 +329,12 @@ local function refreshQuestCache()
         return questCache.entries
     end
 
-    questCache.timestamp = now
-    wipeTable(questCache.entries)
-
     if not C_QuestLog or not C_QuestLog.GetNumQuestLogEntries or not GetQuestObjectiveInfo then
         return questCache.entries
     end
 
+    -- Build new cache in local table to prevent race conditions
+    local newEntries = {}
     local addedQuestIDs = {}
 
     local function determineWorldQuestFlag(questID, seedFlag)
@@ -385,7 +380,7 @@ local function refreshQuestCache()
         end
         addedQuestIDs[entry.questID] = true
         if #entry.objectives > 0 then
-            questCache.entries[#questCache.entries + 1] = entry
+            newEntries[#newEntries + 1] = entry
         end
     end
 
@@ -507,6 +502,10 @@ local function refreshQuestCache()
         end
     end
 
+    -- Atomic update: assign new entries and timestamp together
+    questCache.entries = newEntries
+    questCache.timestamp = now
+    
     return questCache.entries
 end
 
