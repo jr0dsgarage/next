@@ -25,7 +25,7 @@ next is a World of Warcraft addon that helps you decide your next best target by
 
 ## Installation
 
-1. Download or clone the addon into your `Interface/AddOns/next` folder
+1. Download the latest `next.zip` from the releases or clone the addon inside your `Interface/AddOns/` folder
 2. Restart WoW or reload the UI
 3. Configure via `/next config` or Interface > AddOns > Next
 
