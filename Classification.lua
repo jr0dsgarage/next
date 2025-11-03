@@ -85,11 +85,13 @@ tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
 local QUEST_CACHE_SECONDS = 5
 local UNIT_CACHE_SECONDS = 2
 local MYTHIC_SCENARIO_CACHE_SECONDS = 0.5
+local CHALLENGE_MODE_CACHE_SECONDS = 1
 
 local questCache = { timestamp = 0, entries = {} }
 local unitCache = {}
 local mythicScenarioCache = { timestamp = 0, status = {} }
 local tooltipTextCache = {}
+local challengeModeCache = { timestamp = 0, isActive = false }
 
 local function resetCaches()
     questCache.timestamp = 0
@@ -98,6 +100,8 @@ local function resetCaches()
     mythicScenarioCache.timestamp = 0
     mythicScenarioCache.status = {}
     wipeTable(tooltipTextCache)
+    challengeModeCache.timestamp = 0
+    challengeModeCache.isActive = false
 end
 
 local function isInMythicPlusInstance()
@@ -123,38 +127,41 @@ local function isInMythicPlusInstance()
 end
 
 local function isChallengeModeActive()
+    -- Check cache first
+    local now = GetTime()
+    if challengeModeCache.timestamp > 0 and (now - challengeModeCache.timestamp) < CHALLENGE_MODE_CACHE_SECONDS then
+        return challengeModeCache.isActive
+    end
+
+    -- Quick check: are we even in a mythic+ instance?
     if not isInMythicPlusInstance() then
+        challengeModeCache.timestamp = now
+        challengeModeCache.isActive = false
         return false
     end
 
+    local isActive = false
+
+    -- Primary check: Modern API (most reliable)
     if C_MythicPlus and C_MythicPlus.IsMythicPlusActive and C_MythicPlus.IsMythicPlusActive() then
-        return true
-    end
-
-    if not C_ChallengeMode then
-        return false
-    end
-
-    local keystoneMapID, keystoneLevel
-    if C_ChallengeMode.GetActiveKeystoneInfo then
-        keystoneMapID, keystoneLevel = C_ChallengeMode.GetActiveKeystoneInfo()
-        if keystoneMapID and keystoneMapID > 0 and keystoneLevel and keystoneLevel > 0 then
-            return true
+        isActive = true
+    -- Fallback: Challenge mode API
+    elseif C_ChallengeMode then
+        -- Try IsChallengeModeActive first (simplest check)
+        if C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
+            isActive = true
+        -- Try GetActiveKeystoneInfo (more detailed info)
+        elseif C_ChallengeMode.GetActiveKeystoneInfo then
+            local keystoneMapID, keystoneLevel = C_ChallengeMode.GetActiveKeystoneInfo()
+            if keystoneMapID and keystoneMapID > 0 and keystoneLevel and keystoneLevel > 0 then
+                isActive = true
+            end
         end
     end
 
-    if C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
-        return true
-    end
-
-    if C_ChallengeMode.GetActiveChallengeMapID then
-        local mapID = C_ChallengeMode.GetActiveChallengeMapID()
-        if mapID and mapID > 0 and keystoneLevel and keystoneLevel > 0 then
-            return true
-        end
-    end
-
-    return false
+    challengeModeCache.timestamp = now
+    challengeModeCache.isActive = isActive
+    return isActive
 end
 
 local function getMythicScenarioStatus()

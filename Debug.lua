@@ -290,9 +290,18 @@ function addon:UpdateDebugFrame(results)
     end
     lines[#lines + 1] = ""
 
+    -- Calculate max visible based on frame height
+    -- Each entry uses ~4 lines (name, highlight, optional item/boss, optional tooltip)
+    -- Reserve ~4 lines for header, assume ~16px per line
+    local frameHeight = frame:GetHeight() or 300
+    local headerLines = 4
+    local linesPerEntry = 4
+    local lineHeight = 16
+    local maxVisibleEntries = math.max(3, math.floor((frameHeight - (headerLines * lineHeight)) / (linesPerEntry * lineHeight)))
+
     for index, info in ipairs(results) do
-        if index > 8 then
-            lines[#lines + 1] = "... (" .. (#results - 8) .. " more)"
+        if index > maxVisibleEntries then
+            lines[#lines + 1] = "... (" .. (#results - maxVisibleEntries) .. " more)"
             break
         end
 
