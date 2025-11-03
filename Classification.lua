@@ -93,6 +93,7 @@ local MYTHIC_SCENARIO_CACHE_SECONDS = 0.5
 local questCache = { timestamp = 0, entries = {} }
 local unitCache = {}
 local mythicScenarioCache = { timestamp = 0, status = {} }
+local tooltipTextCache = {}
 
 local function resetCaches()
     questCache.timestamp = 0
@@ -100,6 +101,7 @@ local function resetCaches()
     unitCache = {}
     mythicScenarioCache.timestamp = 0
     mythicScenarioCache.status = {}
+    wipeTable(tooltipTextCache)
 end
 
 local function isInMythicPlusInstance()
@@ -241,6 +243,29 @@ local function getMythicScenarioStatus()
     return status
 end
 
+local function getCachedTooltipText(text)
+    if not text or text == "" then
+        return nil
+    end
+    
+    local cached = tooltipTextCache[text]
+    if cached then
+        return cached
+    end
+    
+    local sanitized = stripColorCodes(text)
+    if sanitized then
+        sanitized = trim(strgsub(sanitized, "%s+", " "))
+    end
+    
+    if sanitized and sanitized ~= "" then
+        tooltipTextCache[text] = sanitized
+        return sanitized
+    end
+    
+    return nil
+end
+
 local function parseTooltip(unit)
     local info = {
         hasQuestObjective = false,
@@ -259,26 +284,24 @@ local function parseTooltip(unit)
         if line then
             local text = line:GetText()
             if text and text ~= "" then
-                local sanitized = stripColorCodes(text)
-                if sanitized then
-                    sanitized = trim(strgsub(sanitized, "%s+", " "))
-                end
+                local sanitized = getCachedTooltipText(text)
 
-                if sanitized and sanitized ~= "" and not uniqueLines[sanitized] then
+                if sanitized and not uniqueLines[sanitized] then
                     uniqueLines[sanitized] = true
                     info.lines[#info.lines + 1] = sanitized
                 end
 
-                local toEvaluate = sanitized or text
-                local current, total = toEvaluate:match("(%d+)%s*/%s*(%d+)")
-                if current and total then
-                    local currentNum = tonumber(current)
-                    local totalNum = tonumber(total)
-                    if currentNum and totalNum then
-                        if currentNum >= totalNum then
-                            info.hasCompletedObjective = true
-                        else
-                            info.hasQuestObjective = true
+                if sanitized then
+                    local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
+                    if current and total then
+                        local currentNum = tonumber(current)
+                        local totalNum = tonumber(total)
+                        if currentNum and totalNum then
+                            if currentNum >= totalNum then
+                                info.hasCompletedObjective = true
+                            else
+                                info.hasQuestObjective = true
+                            end
                         end
                     end
                 end
