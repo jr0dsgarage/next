@@ -10,12 +10,15 @@ scrollFrame:SetPoint("TOPLEFT", 3, -4)
 scrollFrame:SetPoint("BOTTOMRIGHT", -27, 4)
 
 local content = CreateFrame("Frame", nil, scrollFrame)
-content:SetSize(620, 560)
+content:SetSize(620, 640)
 scrollFrame:SetScrollChild(content)
 
 local ui = {
     built = false,
     highlightRows = {},
+    preview = {
+        highlights = {},
+    },
 }
 
 local highlightOptions = {
@@ -38,6 +41,208 @@ local function styleLabelFor(value)
         end
     end
     return value or "Outline"
+end
+
+local highlightOptionsByKey = {}
+for _, option in ipairs(highlightOptions) do
+    highlightOptionsByKey[option.key] = option
+end
+
+local WHITE_TEXTURE = "Interface\\BUTTONS\\WHITE8X8"
+local previewClickSound = SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON
+local max = math.max
+local wipe = wipe
+
+local updatePreview
+local selectPreviewOption
+
+local function ensurePreviewHighlights()
+    if not ui.preview.highlights then
+        ui.preview.highlights = {}
+    end
+end
+
+local function clearPreviewHighlights()
+    if not ui.preview or not ui.preview.highlights then
+        return
+    end
+    for _, texture in ipairs(ui.preview.highlights) do
+        texture:Hide()
+        texture:SetParent(nil)
+    end
+    wipe(ui.preview.highlights)
+end
+
+local function applyOutlinePreview(style)
+    if not ui.preview or not ui.preview.healthBar then
+        return
+    end
+
+    ensurePreviewHighlights()
+
+    local healthBar = ui.preview.healthBar
+    local color = style.color or {}
+    local r = color.r or 1
+    local g = color.g or 1
+    local b = color.b or 1
+    local a = color.a or 1
+    if not style.enabled then
+        a = a * 0.35
+    end
+
+    local thickness = max(1, style.thickness or 1)
+    local offset = max(0, style.offset or 0)
+
+    local function addTexture(point, relativePoint, xOffset, yOffset, width, height)
+        local texture = healthBar:CreateTexture(nil, "OVERLAY")
+        texture:SetTexture(WHITE_TEXTURE)
+        texture:SetVertexColor(r, g, b, a)
+        texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
+        if width then
+            texture:SetWidth(width)
+        end
+        if height then
+            texture:SetHeight(height)
+        end
+        texture:Show()
+        ui.preview.highlights[#ui.preview.highlights + 1] = texture
+        return texture
+    end
+
+    local top = addTexture("BOTTOMLEFT", "TOPLEFT", -offset, offset, nil, thickness)
+    top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
+
+    local bottom = addTexture("TOPLEFT", "BOTTOMLEFT", -offset, -offset, nil, thickness)
+    bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
+
+    local left = addTexture("TOPRIGHT", "TOPLEFT", -offset, offset, thickness, nil)
+    left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
+
+    local right = addTexture("TOPLEFT", "TOPRIGHT", offset, offset, thickness, nil)
+    right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
+
+    local function addCorner(point, relativePoint, xOffset, yOffset)
+        local texture = healthBar:CreateTexture(nil, "OVERLAY")
+        texture:SetTexture(WHITE_TEXTURE)
+        texture:SetVertexColor(r, g, b, a)
+        texture:SetSize(thickness, thickness)
+        texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
+        texture:Show()
+        ui.preview.highlights[#ui.preview.highlights + 1] = texture
+    end
+
+    addCorner("BOTTOMRIGHT", "TOPLEFT", -offset, offset)
+    addCorner("BOTTOMLEFT", "TOPRIGHT", offset, offset)
+    addCorner("TOPRIGHT", "BOTTOMLEFT", -offset, -offset)
+    addCorner("TOPLEFT", "BOTTOMRIGHT", offset, -offset)
+end
+
+local previewHandlers = {
+    outline = applyOutlinePreview,
+}
+
+local function applyPreviewHighlight(style)
+    if not style then
+        clearPreviewHighlights()
+        return
+    end
+
+    local mode = style.mode or "outline"
+    if mode == "border" then
+        mode = "outline"
+    end
+
+    clearPreviewHighlights()
+
+    local handler = previewHandlers[mode]
+    if handler then
+        handler(style)
+    end
+end
+
+local function buildStyleData(optionKey)
+    local option = highlightOptionsByKey[optionKey]
+    if not option then
+        return nil
+    end
+
+    local colorKey = option.key .. "Color"
+    local thicknessKey = option.key .. "Thickness"
+    local offsetKey = option.key .. "Offset"
+    local styleKey = option.key .. "Style"
+    local enabledKey = option.key .. "Enabled"
+
+    local color = NextTargetDB[colorKey]
+    if not color then
+        color = addon:GetDefault(colorKey)
+        NextTargetDB[colorKey] = color
+    end
+    color = color or { r = 1, g = 1, b = 1, a = 1 }
+
+    local thicknessValue = NextTargetDB[thicknessKey] or addon:GetDefault(thicknessKey) or 1
+    local offsetValue = NextTargetDB[offsetKey] or addon:GetDefault(offsetKey) or 0
+    local styleValue = NextTargetDB[styleKey] or addon:GetDefault(styleKey) or "outline"
+    NextTargetDB[styleKey] = styleValue
+
+    return {
+        option = option,
+        color = color,
+        thickness = thicknessValue,
+        offset = offsetValue,
+        mode = styleValue,
+        enabled = NextTargetDB[enabledKey] ~= false,
+    }
+end
+
+local function updatePreviewButtonStates(selectedKey)
+    for key, row in pairs(ui.highlightRows) do
+        local button = row.previewButton
+        local indicator = row.previewIndicator
+        if button then
+            local enabled = NextTargetDB[key .. "Enabled"] ~= false
+            local isSelected = (key == selectedKey)
+
+            if isSelected then
+                button:Hide()
+                if indicator then
+                    indicator:Show()
+                    indicator:SetAlpha(enabled and 1 or 0.6)
+                end
+            else
+                button:SetAlpha(enabled and 1 or 0.6)
+                button:SetEnabled(enabled)
+                button:Show()
+                if indicator then
+                    indicator:Hide()
+                end
+            end
+        end
+    end
+end
+
+updatePreview = function(optionKey)
+    if not ui.preview or not ui.preview.frame then
+        return
+    end
+
+    optionKey = optionKey or ui.preview.activeKey
+    if not optionKey then
+        return
+    end
+
+    local style = buildStyleData(optionKey)
+    if not style then
+        return
+    end
+
+    ui.preview.activeKey = optionKey
+
+    applyPreviewHighlight(style)
+    updatePreviewButtonStates(optionKey)
+end
+
+selectPreviewOption = function(optionKey)
+    updatePreview(optionKey)
 end
 
 local function accentuate()
@@ -95,33 +300,33 @@ local function createHighlightRow(anchor, option, index)
     label:SetText(option.label)
 
     local checkbox = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
-    checkbox:SetPoint("LEFT", label, "RIGHT", 2, 0)
+    checkbox:SetPoint("LEFT", label, "RIGHT", 4, 0)
 
     local dropdown = CreateFrame("Frame", nil, content, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("LEFT", checkbox, "RIGHT", -4, -2)
+    dropdown:SetPoint("LEFT", checkbox, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(dropdown, 120)
     UIDropDownMenu_JustifyText(dropdown, "LEFT")
 
     local colorButton = CreateFrame("Button", nil, content)
-    colorButton:SetPoint("LEFT", dropdown, "RIGHT", 6, 0)
-    colorButton:SetSize(26, 26)
+    colorButton:SetPoint("LEFT", dropdown, "RIGHT", 4, 0)
+    colorButton:SetSize(24, 24)
 
     local border = colorButton:CreateTexture(nil, "BACKGROUND")
     border:SetAllPoints()
     border:SetColorTexture(0, 0, 0, 0.8)
 
     local swatch = colorButton:CreateTexture(nil, "ARTWORK")
-    swatch:SetPoint("TOPLEFT", 2, -2)
-    swatch:SetPoint("BOTTOMRIGHT", -2, 2)
+    swatch:SetPoint("TOPLEFT", 1, -1)
+    swatch:SetPoint("BOTTOMRIGHT", -1, 1)
     colorButton.swatch = swatch
 
     local thickness = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
-    thickness:SetPoint("LEFT", colorButton, "RIGHT", 18, 0)
+    thickness:SetPoint("LEFT", colorButton, "RIGHT", 12, 0)
     thickness:SetPoint("CENTER", label, "CENTER", 0, -2)
     thickness:SetMinMaxValues(1, 5)
     thickness:SetValueStep(1)
     thickness:SetObeyStepOnDrag(true)
-    thickness:SetWidth(110)
+    thickness:SetWidth(100)
     thickness.Low:SetText("1")
     thickness.High:SetText("5")
     thickness.Text:ClearAllPoints()
@@ -129,17 +334,54 @@ local function createHighlightRow(anchor, option, index)
     thickness.Text:SetJustifyH("CENTER")
 
     local offset = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
-    offset:SetPoint("LEFT", thickness, "RIGHT", 18, 0)
+    offset:SetPoint("LEFT", thickness, "RIGHT", 12, 0)
     offset:SetPoint("CENTER", thickness, "CENTER", 0, 0)
     offset:SetMinMaxValues(0, 5)
     offset:SetValueStep(1)
     offset:SetObeyStepOnDrag(true)
-    offset:SetWidth(110)
+    offset:SetWidth(100)
     offset.Low:SetText("0")
     offset.High:SetText("5")
     offset.Text:ClearAllPoints()
     offset.Text:SetPoint("BOTTOM", offset, "TOP", 0, 2)
     offset.Text:SetJustifyH("CENTER")
+
+    local previewButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    previewButton:SetPoint("LEFT", offset, "RIGHT", 12, 0)
+    previewButton:SetSize(24, 22)
+    previewButton:SetMotionScriptsWhileDisabled(true)
+    previewButton:SetText("i")
+    previewButton:SetNormalFontObject(GameFontHighlightSmall)
+    previewButton:SetHighlightFontObject(GameFontHighlightSmall)
+    previewButton:SetDisabledFontObject(GameFontDisableSmall)
+
+    local function tintButtonTextures(button, normal, highlight, disabled)
+        local normalTexture = button:GetNormalTexture()
+        if normalTexture then
+            normalTexture:SetVertexColor(normal.r, normal.g, normal.b, normal.a or 1)
+        end
+        local highlightTexture = button:GetHighlightTexture()
+        if highlightTexture then
+            highlightTexture:SetVertexColor(highlight.r, highlight.g, highlight.b, highlight.a or 1)
+        end
+        local disabledTexture = button:GetDisabledTexture()
+        if disabledTexture then
+            disabledTexture:SetVertexColor(disabled.r, disabled.g, disabled.b, disabled.a or 1)
+        end
+    end
+
+    tintButtonTextures(previewButton, { r = 0.7, g = 0.1, b = 0.1 }, { r = 1, g = 0.2, b = 0.2 }, { r = 0.3, g = 0.06, b = 0.06 })
+
+    local indicator = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    indicator:SetPoint("CENTER", previewButton, "CENTER", 0, 0)
+    indicator:SetSize(24, 22)
+    indicator:SetText("i")
+    indicator:SetNormalFontObject(GameFontHighlightSmall)
+    indicator:SetDisabledFontObject(GameFontDisableSmall)
+    indicator:Disable()
+    indicator:EnableMouse(false)
+    indicator:Hide()
+    tintButtonTextures(indicator, { r = 0.65, g = 0.1, b = 0.1 }, { r = 0.9, g = 0.2, b = 0.2 }, { r = 0.35, g = 0.08, b = 0.08 })
 
     return {
         label = label,
@@ -148,6 +390,8 @@ local function createHighlightRow(anchor, option, index)
         colorButton = colorButton,
         thickness = thickness,
         offset = offset,
+        previewButton = previewButton,
+        previewIndicator = indicator,
     }
 end
 
@@ -161,6 +405,11 @@ local function bindHighlightRow(option, row)
     row.checkbox:SetScript("OnClick", function(self)
         NextTargetDB[enabledKey] = self:GetChecked()
         accentuate()
+        if ui.preview.activeKey == option.key then
+            updatePreview(option.key)
+        else
+            updatePreviewButtonStates(ui.preview.activeKey or option.key)
+        end
     end)
 
     row.colorButton:SetScript("OnClick", function()
@@ -172,6 +421,9 @@ local function bindHighlightRow(option, row)
         useColorPicker(color, function()
             updateSwatch(row.colorButton, color)
             accentuate()
+            if ui.preview.activeKey == option.key then
+                updatePreview(option.key)
+            end
         end)
     end)
 
@@ -183,6 +435,9 @@ local function bindHighlightRow(option, row)
         NextTargetDB[thicknessKey] = rounded
         self.Text:SetText(string.format("Thickness: %d", rounded))
         accentuate()
+        if ui.preview.activeKey == option.key then
+            updatePreview(option.key)
+        end
     end)
 
     row.offset:SetScript("OnValueChanged", function(self, value)
@@ -193,13 +448,16 @@ local function bindHighlightRow(option, row)
         NextTargetDB[offsetKey] = rounded
         self.Text:SetText(string.format("Offset: %d", rounded))
         accentuate()
+        if ui.preview.activeKey == option.key then
+            updatePreview(option.key)
+        end
     end)
 
     UIDropDownMenu_Initialize(row.dropdown, function(_, level)
         if level ~= 1 then
             return
         end
-    local current = NextTargetDB[styleKey] or addon:GetDefault(styleKey) or "outline"
+        local current = NextTargetDB[styleKey] or addon:GetDefault(styleKey) or "outline"
         for _, choice in ipairs(highlightStyleChoices) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = choice.label
@@ -209,11 +467,31 @@ local function bindHighlightRow(option, row)
                 UIDropDownMenu_SetSelectedValue(row.dropdown, choice.value)
                 UIDropDownMenu_SetText(row.dropdown, choice.label)
                 accentuate()
+                if ui.preview.activeKey == option.key then
+                    updatePreview(option.key)
+                end
             end
             info.checked = (current == choice.value)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
+
+    if row.previewButton then
+        row.previewButton.optionKey = option.key
+        row.previewButton:SetScript("OnClick", function()
+            if PlaySound and previewClickSound then
+                PlaySound(previewClickSound)
+            end
+            selectPreviewOption(option.key)
+        end)
+        row.previewButton:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(option.label)
+            GameTooltip:AddLine("Click to preview this highlight.", 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        row.previewButton:SetScript("OnLeave", GameTooltip_Hide)
+    end
 end
 
 local function refreshHighlightRow(option, row)
@@ -250,6 +528,47 @@ local function refreshHighlightRow(option, row)
     UIDropDownMenu_SetText(row.dropdown, styleLabelFor(styleValue))
 end
 
+local function buildPreviewSection()
+    if ui.preview.sectionBuilt then
+        return
+    end
+    ui.preview.sectionBuilt = true
+
+    local frame = CreateFrame("Frame", nil, content)
+    frame:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -22)
+    frame:SetSize(150, 50)
+    ui.preview.frame = frame
+
+    local borderFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    borderFrame:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    borderFrame:SetSize(132, 7)
+    borderFrame:SetBackdrop({
+        bgFile = WHITE_TEXTURE,
+        edgeFile = WHITE_TEXTURE,
+        edgeSize = 2,
+    })
+    borderFrame:SetBackdropColor(0.08, 0.02, 0.02, 1)
+    borderFrame:SetBackdropBorderColor(0, 0, 0, 1)
+
+    local healthFill = CreateFrame("StatusBar", nil, borderFrame)
+    healthFill:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", 2, -1)
+    healthFill:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", -2, 1)
+    healthFill:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    healthFill:SetStatusBarColor(0.78, 0.06, 0.1, 1)
+    healthFill:SetMinMaxValues(0, 100)
+    healthFill:SetValue(100)
+
+    local background = healthFill:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    background:SetVertexColor(0.25, 0, 0, 0.8)
+
+    ui.preview.outerFrame = borderFrame
+    ui.preview.healthBar = healthFill
+
+    ensurePreviewHighlights()
+end
+
 local function buildSettingsUI()
     if ui.built then
         return
@@ -277,8 +596,14 @@ local function buildSettingsUI()
     end)
     ui.enable = enable
 
+    buildPreviewSection()
+
     local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, -18)
+    local headerOffset = -18
+    if ui.preview.frame then
+        headerOffset = -(ui.preview.frame:GetHeight() + 30)
+    end
+    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, headerOffset)
     header:SetText("Highlight Styles")
 
     for index, option in ipairs(highlightOptions) do
@@ -287,7 +612,7 @@ local function buildSettingsUI()
         ui.highlightRows[option.key] = row
     end
 
-    content:SetHeight(220 + #highlightOptions * 56)
+    content:SetHeight(240 + #highlightOptions * 56)
 end
 
 panel:SetScript("OnShow", function()
@@ -302,6 +627,14 @@ function panel.refresh()
 
     for _, option in ipairs(highlightOptions) do
         refreshHighlightRow(option, ui.highlightRows[option.key])
+    end
+
+    if ui.preview.frame then
+        if ui.preview.activeKey then
+            updatePreview(ui.preview.activeKey)
+        elseif highlightOptions[1] then
+            selectPreviewOption(highlightOptions[1].key)
+        end
     end
 end
 
