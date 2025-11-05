@@ -274,6 +274,7 @@ local function parseTooltip(unit)
         hasQuestObjective = false,
         hasCompletedObjective = false,
         lines = {},
+        normalizedLines = nil,
     }
 
     local uniqueLines = {}
@@ -311,6 +312,8 @@ local function parseTooltip(unit)
             end
         end
     end
+
+    info.normalizedLines = normalizeLines(info.lines)
 
     tooltipScanner:Hide()
     return info
@@ -409,9 +412,12 @@ local function refreshQuestCache()
             isBonusObjective = false,
             objectives = {},
             normalizedObjectives = {},
+            normalizedQuestName = nil,
         }
 
         entry.isWorldQuest = determineWorldQuestFlag(questID, seed.isWorldQuest)
+
+        entry.normalizedQuestName = normalizeText(entry.questName)
 
         if seed.isBonusObjective then
             entry.isBonusObjective = true
@@ -569,42 +575,46 @@ local function refreshQuestCache()
     return questCache.entries
 end
 
-local function objectiveMatches(unit, unitName, tooltipLines, questEntries)
-    local unitNameNormalized = normalizeText(unitName)
+local function matchQuestFromTooltip(unit, tooltipInfo, questEntries)
+    if not questEntries or #questEntries == 0 then
+        return nil
+    end
+
     local unitIsRelatedToQuest = C_QuestLog and C_QuestLog.UnitIsRelatedToQuest
-    local highlightedTooltipLines
-
-    for _, entry in ipairs(questEntries) do
-        if entry.questID and unit and unitIsRelatedToQuest then
-            local related = unitIsRelatedToQuest(unit, entry.questID)
-            if related then
-                return true, entry.isWorldQuest, entry.isBonusObjective, entry.questName, entry.questID
-            end
-        end
-
-        if entry.normalizedObjectives and unitNameNormalized then
-            for _, normalizedObjective in ipairs(entry.normalizedObjectives) do
-                if normalizedObjective and normalizedObjective:find(unitNameNormalized, 1, true) then
-                    return true, entry.isWorldQuest, entry.isBonusObjective, entry.questName, entry.questID
+    if unit and unitIsRelatedToQuest then
+        for _, entry in ipairs(questEntries) do
+            if entry.questID then
+                local related = unitIsRelatedToQuest(unit, entry.questID)
+                if related then
+                    return entry
                 end
             end
         end
+    end
 
-        if tooltipLines and entry.normalizedObjectives then
-            highlightedTooltipLines = highlightedTooltipLines or normalizeLines(tooltipLines)
-            if highlightedTooltipLines then
-                for _, tooltipLine in ipairs(highlightedTooltipLines) do
-                    for _, normalizedObjective in ipairs(entry.normalizedObjectives) do
-                        if normalizedObjective and (normalizedObjective:find(tooltipLine, 1, true) or tooltipLine:find(normalizedObjective, 1, true)) then
-                            return true, entry.isWorldQuest, entry.isBonusObjective, entry.questName, entry.questID
-                        end
+    if not tooltipInfo then
+        return nil
+    end
+
+    local normalizedTooltipLines = tooltipInfo.normalizedLines
+    if not normalizedTooltipLines and tooltipInfo.lines then
+        normalizedTooltipLines = normalizeLines(tooltipInfo.lines)
+    end
+
+    if normalizedTooltipLines then
+        for _, entry in ipairs(questEntries) do
+            local normalizedQuestName = entry.normalizedQuestName
+            if normalizedQuestName and normalizedQuestName ~= "" then
+                for _, line in ipairs(normalizedTooltipLines) do
+                    if line == normalizedQuestName or line:find(normalizedQuestName, 1, true) or normalizedQuestName:find(line, 1, true) then
+                        return entry
                     end
                 end
             end
         end
     end
 
-    return false, false, false, nil, nil
+    return nil
 end
 
 local function classifyUnit(unitData)
@@ -628,7 +638,11 @@ local function classifyUnit(unitData)
 
     local tooltipInfo = parseTooltip(unit)
     local questEntries = refreshQuestCache()
-    local hasObjective, isWorldQuest, isBonusObjective, questName, questID = objectiveMatches(unit, unitName, tooltipInfo.lines, questEntries)
+    local questMatch = matchQuestFromTooltip(unit, tooltipInfo, questEntries)
+    local questName = questMatch and questMatch.questName or nil
+    local questID = questMatch and questMatch.questID or nil
+    local isWorldQuest = questMatch and questMatch.isWorldQuest or false
+    local isBonusObjective = questMatch and questMatch.isBonusObjective or false
     local mythicStatus = getMythicScenarioStatus()
     local inChallengeMode = mythicStatus and mythicStatus.isActive
     local hasSoftTarget = hasQuestItemIcon(unit)
@@ -645,7 +659,7 @@ local function classifyUnit(unitData)
     local mythicBossName
     if hasSoftTarget then
         reason = "Has Quest Item"
-    elseif hasObjective or tooltipInfo.hasQuestObjective then
+    elseif tooltipInfo.hasQuestObjective then
         if isBonusObjective then
             reason = "Bonus Objective"
         elseif isWorldQuest then
@@ -701,7 +715,7 @@ local function classifyUnit(unitData)
         isBonusObjective = isBonusObjective,
         hasSoftTarget = hasSoftTarget,
         isQuestBoss = isQuestBoss,
-        hasQuestObjectiveMatch = hasObjective,
+        hasQuestObjectiveMatch = questMatch ~= nil,
         hasTooltipObjective = tooltipInfo.hasQuestObjective,
         hasCompletedObjective = tooltipInfo.hasCompletedObjective,
         isRare = isRare,
@@ -717,8 +731,10 @@ local function classifyUnit(unitData)
     if not reason then
         if tooltipInfo.hasCompletedObjective then
             result.note = "Quest objective already complete"
-        elseif hasObjective then
-            result.note = "Quest objective match, but filtered"
+        elseif tooltipInfo.hasQuestObjective then
+            result.note = "Tooltip indicates quest objective, but filtered"
+        elseif questMatch then
+            result.note = "Quest match found, but no tooltip objective"
         elseif isQuestBoss then
             result.note = "Quest boss for unavailable quest"
         elseif isRare then
