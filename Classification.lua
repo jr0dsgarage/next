@@ -391,7 +391,8 @@ local function refreshQuestCache()
         end
     end
 
-    local function buildQuestEntry(questID, isWorldQuest)
+    local function buildQuestEntry(questID, seed)
+        seed = seed or {}
         if not questID or addedQuestIDs[questID] then
             return nil
         end
@@ -410,10 +411,47 @@ local function refreshQuestCache()
             normalizedObjectives = {},
         }
 
-        entry.isWorldQuest = determineWorldQuestFlag(questID, isWorldQuest)
-        
+        entry.isWorldQuest = determineWorldQuestFlag(questID, seed.isWorldQuest)
+
+        if seed.isBonusObjective then
+            entry.isBonusObjective = true
+        end
+
         if questUtilsIsBonusObjective and questUtilsIsBonusObjective(questID) then
             entry.isBonusObjective = true
+        end
+
+        if not entry.isBonusObjective and C_QuestLog and C_QuestLog.IsBonusObjective then
+            local ok, isBonus = pcall(C_QuestLog.IsBonusObjective, questID)
+            if ok and isBonus then
+                entry.isBonusObjective = true
+            end
+        end
+
+        if not entry.isBonusObjective and C_QuestLog and C_QuestLog.GetInfo then
+            local questInfo = seed.questInfo
+            if not questInfo then
+                local infoIndex = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(questID)
+                if infoIndex then
+                    questInfo = C_QuestLog.GetInfo(infoIndex)
+                end
+            end
+            if questInfo and questInfo.isBonusObjective then
+                entry.isBonusObjective = true
+            end
+        end
+
+        if not entry.isBonusObjective and C_QuestLog and C_QuestLog.GetQuestTagInfo and Enum and Enum.QuestTagType and Enum.QuestTagType.BonusObjective then
+            local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
+            local tagID = nil
+            if type(tagInfo) == "table" then
+                tagID = tagInfo.tagID or tagInfo.tagId
+            else
+                tagID = tagInfo
+            end
+            if tagID and tagID == Enum.QuestTagType.BonusObjective then
+                entry.isBonusObjective = true
+            end
         end
 
         if C_QuestLog.GetQuestObjectives then
@@ -424,6 +462,13 @@ local function refreshQuestCache()
                         addObjectiveText(entry, objective.text)
                     end
                 end
+            end
+        end
+
+        if not entry.isBonusObjective and entry.questName then
+            local nameLower = strlower(entry.questName)
+            if nameLower:find("bonus objective", 1, true) then
+                entry.isBonusObjective = true
             end
         end
 
@@ -446,7 +491,11 @@ local function refreshQuestCache()
         local info = C_QuestLog.GetInfo(index)
         if info and not info.isHeader and info.questID then
             local questID = info.questID
-            local entry = buildQuestEntry(questID, nil)
+            local entry = buildQuestEntry(questID, {
+                questInfo = info,
+                isBonusObjective = info and info.isBonusObjective,
+                isWorldQuest = info and info.isWorldQuest,
+            })
             addEntry(entry)
         end
     end
@@ -454,8 +503,8 @@ local function refreshQuestCache()
     if C_TaskQuest and C_TaskQuest.GetQuestsForPlayerByMapID and C_Map and C_Map.GetBestMapForUnit then
         local processedMaps = {}
 
-        local function addWorldQuest(questID)
-            local entry = buildQuestEntry(questID, true)
+        local function addWorldQuest(questID, seed)
+            local entry = buildQuestEntry(questID, seed)
             addEntry(entry)
         end
 
@@ -477,7 +526,11 @@ local function refreshQuestCache()
                             isActive = taskInfo.inProgress ~= false
                         end
                         if isActive then
-                            addWorldQuest(questID)
+                            local seed = { isWorldQuest = true }
+                            if taskInfo and taskInfo.isBonusObjective then
+                                seed.isBonusObjective = true
+                            end
+                            addWorldQuest(questID, seed)
                         end
                     end
                 end
