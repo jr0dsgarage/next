@@ -52,6 +52,8 @@ jobs:
           VERSION="${{ steps.ver.outputs.tag }}"
           # Remove 'v' prefix if present (v1.2.3 -> 1.2.3)
           VERSION="${VERSION#v}"
+          # Remove leading period if present (v.1.2.3 -> 1.2.3)
+          VERSION="${VERSION#.}"
           echo "Updating TOC file to version $VERSION"
           sed -i "s/^## Version:.*/## Version: $VERSION/" next.toc
           echo "TOC file updated:"
