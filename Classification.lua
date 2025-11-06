@@ -308,6 +308,18 @@ local function parseTooltip(unit)
                             end
                         end
                     end
+
+                    local percentValue = sanitized:match("(%d?%d?%d)%%")
+                    if percentValue then
+                        local percentNum = tonumber(percentValue)
+                        if percentNum then
+                            if percentNum >= 100 then
+                                info.hasCompletedObjective = true
+                            else
+                                info.hasQuestObjective = true
+                            end
+                        end
+                    end
                 end
             end
         end
