@@ -4,7 +4,6 @@ local addonName, addon = ...
 
 addon.frame = addon.frame or CreateFrame("Frame")
 addon.highlights = addon.highlights or {}
-addon.currentTargetGUID = addon.currentTargetGUID or nil
 addon.pendingUpdate = addon.pendingUpdate or false
 
 local sanitizeCommand = addon.SanitizeCommand
@@ -62,11 +61,6 @@ eventHandlers.ADDON_LOADED = function(self, loadedAddon)
     self:RequestUpdate()
 end
 
-eventHandlers.PLAYER_ENTERING_WORLD = function(self)
-    self:ResetCaches()
-    self:RequestUpdate()
-end
-
 eventHandlers.PLAYER_TARGET_CHANGED = function(self)
     self:RequestUpdate()
 end
@@ -79,20 +73,11 @@ eventHandlers.NAME_PLATE_UNIT_REMOVED = function(self)
     self:RequestUpdate()
 end
 
-eventHandlers.QUEST_ACCEPTED = function(self)
-    self:ResetCaches()
+eventHandlers.PLAYER_ENTERING_WORLD = function(self)
     self:RequestUpdate()
 end
 
-eventHandlers.QUEST_LOG_UPDATE = eventHandlers.QUEST_ACCEPTED
-eventHandlers.QUEST_REMOVED = eventHandlers.QUEST_ACCEPTED
-eventHandlers.QUEST_TURNED_IN = eventHandlers.QUEST_ACCEPTED
-
-eventHandlers.PLAYER_REGEN_DISABLED = function(self)
-    self:RequestUpdate()
-end
-
-eventHandlers.PLAYER_REGEN_ENABLED = function(self)
+eventHandlers.QUEST_LOG_UPDATE = function(self)
     self:RequestUpdate()
 end
 
@@ -104,16 +89,11 @@ addon.frame:SetScript("OnEvent", function(_, event, ...)
 end)
 
 addon.frame:RegisterEvent("ADDON_LOADED")
-addon.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 addon.frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 addon.frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 addon.frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
-addon.frame:RegisterEvent("QUEST_ACCEPTED")
+addon.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 addon.frame:RegisterEvent("QUEST_LOG_UPDATE")
-addon.frame:RegisterEvent("QUEST_REMOVED")
-addon.frame:RegisterEvent("QUEST_TURNED_IN")
-addon.frame:RegisterEvent("PLAYER_REGEN_DISABLED")
-addon.frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 
 SLASH_NEXT1 = "/next"
 

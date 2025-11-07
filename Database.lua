@@ -40,8 +40,6 @@ local DEFAULTS = {
     mythicObjectiveStyle = "outline",
 }
 
-addon.DEFAULTS = DEFAULTS
-
 local MIGRATION_MAP = {
     showCurrentTarget = "currentTargetEnabled",
     showQuestObjective = "questObjectiveEnabled",
@@ -76,7 +74,6 @@ local function cloneTable(source)
     end
     return copy
 end
-addon.CloneTable = cloneTable
 
 local function mergeDefaults(target, source)
     for key, value in pairs(source) do
@@ -91,7 +88,6 @@ local function mergeDefaults(target, source)
         end
     end
 end
-addon.MergeDefaults = mergeDefaults
 
 local function wipeTable(tbl)
     if table.wipe then

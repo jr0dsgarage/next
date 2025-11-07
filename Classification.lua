@@ -37,9 +37,8 @@ local function normalizeText(text)
         return nil
     end
 
-    -- Combine multiple pattern replacements and normalize whitespace
-    text = strgsub(text, "[%(%)]", " ")  -- Remove parentheses
-    text = strgsub(text, "[%[%]%p%c]", " ")  -- Remove brackets, punctuation, and control chars in one pass
+    -- Combine pattern replacements and normalize whitespace
+    text = strgsub(text, "[%[%]%p%c]", " ")  -- Remove brackets, punctuation, control chars
     text = strlower(text)
     text = trim(strgsub(text, "%s+", " "))  -- Normalize whitespace and trim in one expression
 
@@ -66,19 +65,6 @@ local function normalizeLines(lines)
     return normalized
 end
 
-local function addObjectiveText(entry, text)
-    if not text or text == "" then
-        return
-    end
-
-    entry.objectives[#entry.objectives + 1] = text
-
-    local normalized = normalizeText(text)
-    if normalized then
-        entry.normalizedObjectives[#entry.normalizedObjectives + 1] = normalized
-    end
-end
-
 local tooltipScanner = CreateFrame("GameTooltip", addonName .. "TooltipScanner", UIParent, "GameTooltipTemplate")
 tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
 
@@ -92,17 +78,6 @@ local unitCache = {}
 local mythicScenarioCache = { timestamp = 0, status = {} }
 local tooltipTextCache = {}
 local challengeModeCache = { timestamp = 0, isActive = false }
-
-local function resetCaches()
-    questCache.timestamp = 0
-    wipeTable(questCache.entries)
-    unitCache = {}
-    mythicScenarioCache.timestamp = 0
-    mythicScenarioCache.status = {}
-    wipeTable(tooltipTextCache)
-    challengeModeCache.timestamp = 0
-    challengeModeCache.isActive = false
-end
 
 local function isInMythicPlusInstance()
     if not IsInInstance then
@@ -204,9 +179,6 @@ local function getMythicScenarioStatus()
     end
 
     local getCriteriaInfo = C_Scenario.GetCriteriaInfo
-    local isCountsForScore = C_Scenario.DoesCriterionVaryByBattlegroup and function(idx)
-        return C_Scenario.DoesCriterionVaryByBattlegroup(idx)
-    end
 
     if not getCriteriaInfo and C_Scenario.GetCriteriaInfoByStep then
         getCriteriaInfo = function(idx)
@@ -219,12 +191,7 @@ local function getMythicScenarioStatus()
     end
 
     for index = 1, numCriteria do
-        local description, _, completed, quantity, totalQuantity
-        if C_Scenario.GetCriteriaInfo then
-            description, _, completed, quantity, totalQuantity = getCriteriaInfo(index)
-        else
-            description, _, completed, quantity, totalQuantity = getCriteriaInfo(index)
-        end
+        local description, _, completed, quantity, totalQuantity = getCriteriaInfo(index)
         if description then
             local descriptionLower = strlower(description)
             if descriptionLower:find("enemy forces", 1, true) then
@@ -351,7 +318,7 @@ local function refreshQuestCache()
         return questCache.entries
     end
 
-    if not C_QuestLog or not C_QuestLog.GetNumQuestLogEntries or not GetQuestObjectiveInfo then
+    if not C_QuestLog or not C_QuestLog.GetNumQuestLogEntries then
         return questCache.entries
     end
 
@@ -401,9 +368,7 @@ local function refreshQuestCache()
             return
         end
         addedQuestIDs[entry.questID] = true
-        if #entry.objectives > 0 then
-            newEntries[#newEntries + 1] = entry
-        end
+        newEntries[#newEntries + 1] = entry
     end
 
     local function buildQuestEntry(questID, seed)
@@ -422,8 +387,6 @@ local function refreshQuestCache()
             questName = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or "Unknown Quest",
             isWorldQuest = false,
             isBonusObjective = false,
-            objectives = {},
-            normalizedObjectives = {},
             normalizedQuestName = nil,
         }
 
@@ -472,31 +435,10 @@ local function refreshQuestCache()
             end
         end
 
-        if C_QuestLog.GetQuestObjectives then
-            local objectives = C_QuestLog.GetQuestObjectives(questID)
-            if objectives then
-                for _, objective in ipairs(objectives) do
-                    if objective and objective.text and objective.text ~= "" and not objective.finished then
-                        addObjectiveText(entry, objective.text)
-                    end
-                end
-            end
-        end
-
         if not entry.isBonusObjective and entry.questName then
             local nameLower = strlower(entry.questName)
             if nameLower:find("bonus objective", 1, true) then
                 entry.isBonusObjective = true
-            end
-        end
-
-        if #entry.objectives == 0 then
-            local objectiveCount = C_QuestLog.GetNumQuestObjectives and C_QuestLog.GetNumQuestObjectives(questID) or 0
-            for objectiveIndex = 1, objectiveCount do
-                local text, _, finished = GetQuestObjectiveInfo(questID, objectiveIndex, false)
-                if text and text ~= "" and not finished then
-                    addObjectiveText(entry, text)
-                end
             end
         end
 
@@ -616,7 +558,7 @@ local function matchQuestFromTooltip(unit, tooltipInfo, questEntries)
     if normalizedTooltipLines then
         for _, entry in ipairs(questEntries) do
             local normalizedQuestName = entry.normalizedQuestName
-            if normalizedQuestName and normalizedQuestName ~= "" then
+            if normalizedQuestName then
                 for _, line in ipairs(normalizedTooltipLines) do
                     if line == normalizedQuestName or line:find(normalizedQuestName, 1, true) or normalizedQuestName:find(line, 1, true) then
                         return entry
@@ -806,18 +748,10 @@ local function getRelevantUnits()
     return units
 end
 
-function addon:ResetCaches()
-    resetCaches()
-end
-
 function addon:GetRelevantUnits()
     return getRelevantUnits()
 end
 
 function addon:ClassifyUnit(unitData)
     return classifyUnit(unitData)
-end
-
-function addon:GetQuestCache()
-    return questCache.entries
 end
