@@ -346,6 +346,19 @@ function addon:UpdateDebugFrame(results)
 
         lines[#lines + 1] = highlightExplanation
 
+    local hasQuestMeta = (info.questName and info.questName ~= "") or info.questID or info.questType or info.questMatchSource or info.hasTooltipObjective
+        if hasQuestMeta then
+            local questBits = {}
+            questBits[#questBits + 1] = string.format("ID: %s", info.questID or "n/a")
+            questBits[#questBits + 1] = string.format("Type: %s", info.questType or "unknown")
+            questBits[#questBits + 1] = string.format("Src: %s", info.questMatchSource or "none")
+            if info.hasTooltipObjective ~= nil then
+                questBits[#questBits + 1] = string.format("Tooltip Objective: %s", info.hasTooltipObjective and "yes" or "no")
+            end
+            local questName = (info.questName and info.questName ~= "") and info.questName or "<unknown>"
+            lines[#lines + 1] = string.format("    Quest Info: %s (%s)", questName, table.concat(questBits, "; "))
+        end
+
         if info.hasSoftTarget then
             lines[#lines + 1] = "    Has quest item icon"
         end
