@@ -49,4 +49,4 @@ Customize using the built-in Settings Panel
 
 ## Support
 
-For issues or feature requests, open an issue on GitHub or contact the author.
+For issues or feature requests, open an issue on [GitHub](https://github.com/jr0dsgarage/next) or contact the author.
