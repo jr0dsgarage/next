@@ -43,6 +43,13 @@ end
 
 local eventHandlers = {}
 
+local function handleQuestDataChanged(self)
+    if self.ResetCaches then
+        self:ResetCaches()
+    end
+    self:RequestUpdate()
+end
+
 eventHandlers.ADDON_LOADED = function(self, loadedAddon)
     if loadedAddon ~= addonName then
         return
@@ -77,9 +84,13 @@ eventHandlers.PLAYER_ENTERING_WORLD = function(self)
     self:RequestUpdate()
 end
 
-eventHandlers.QUEST_LOG_UPDATE = function(self)
-    self:RequestUpdate()
-end
+eventHandlers.QUEST_LOG_UPDATE = handleQuestDataChanged
+eventHandlers.QUEST_ACCEPTED = handleQuestDataChanged
+eventHandlers.QUEST_REMOVED = handleQuestDataChanged
+eventHandlers.QUEST_TURNED_IN = handleQuestDataChanged
+eventHandlers.QUEST_WATCH_LIST_CHANGED = handleQuestDataChanged
+eventHandlers.TASK_PROGRESS_UPDATE = handleQuestDataChanged
+eventHandlers.QUESTLINE_UPDATE = handleQuestDataChanged
 
 addon.frame:SetScript("OnEvent", function(_, event, ...)
     local handler = eventHandlers[event]
@@ -94,6 +105,12 @@ addon.frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 addon.frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 addon.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 addon.frame:RegisterEvent("QUEST_LOG_UPDATE")
+addon.frame:RegisterEvent("QUEST_ACCEPTED")
+addon.frame:RegisterEvent("QUEST_REMOVED")
+addon.frame:RegisterEvent("QUEST_TURNED_IN")
+addon.frame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
+addon.frame:RegisterEvent("TASK_PROGRESS_UPDATE")
+addon.frame:RegisterEvent("QUESTLINE_UPDATE")
 
 SLASH_NEXT1 = "/next"
 

@@ -68,8 +68,9 @@ end
 local tooltipScanner = CreateFrame("GameTooltip", addonName .. "TooltipScanner", UIParent, "GameTooltipTemplate")
 tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
 
-local QUEST_CACHE_SECONDS = 5
-local UNIT_CACHE_SECONDS = 2
+local QUEST_CACHE_SECONDS = 5 -- fallback TTL in case quest change events are missed
+local UNIT_CACHE_SECONDS = 1.25
+local UNIT_CACHE_PENDING_OBJECTIVE_SECONDS = 0.1
 local MYTHIC_SCENARIO_CACHE_SECONDS = 0.5
 local CHALLENGE_MODE_CACHE_SECONDS = 1
 
@@ -78,6 +79,29 @@ local unitCache = {}
 local mythicScenarioCache = { timestamp = 0, status = {} }
 local tooltipTextCache = {}
 local challengeModeCache = { timestamp = 0, isActive = false }
+
+local function resetCaches()
+    questCache.timestamp = 0
+    if wipeTable then
+        wipeTable(questCache.entries)
+    else
+        questCache.entries = {}
+    end
+    unitCache = {}
+
+    mythicScenarioCache.timestamp = 0
+    mythicScenarioCache.status = mythicScenarioCache.status or {}
+    if wipeTable then
+        wipeTable(mythicScenarioCache.status)
+    else
+        mythicScenarioCache.status = {}
+    end
+
+    tooltipTextCache = {}
+
+    challengeModeCache.timestamp = 0
+    challengeModeCache.isActive = false
+end
 
 local function isInMythicPlusInstance()
     if not IsInInstance then
@@ -278,12 +302,16 @@ local function parseTooltip(unit)
 
                     local percentValue = sanitized:match("(%d?%d?%d)%%")
                     if percentValue then
-                        local percentNum = tonumber(percentValue)
-                        if percentNum then
-                            if percentNum >= 100 then
-                                info.hasCompletedObjective = true
-                            else
-                                info.hasQuestObjective = true
+                        local lower = strlower(sanitized)
+                        local isThreatLine = lower:find("threat", 1, true) ~= nil
+                        if not isThreatLine then
+                            local percentNum = tonumber(percentValue)
+                            if percentNum then
+                                if percentNum >= 100 then
+                                    info.hasCompletedObjective = true
+                                else
+                                    info.hasQuestObjective = true
+                                end
                             end
                         end
                     end
@@ -531,7 +559,7 @@ end
 
 local function matchQuestFromTooltip(unit, tooltipInfo, questEntries)
     if not questEntries or #questEntries == 0 then
-        return nil
+        return nil, nil
     end
 
     local unitIsRelatedToQuest = C_QuestLog and C_QuestLog.UnitIsRelatedToQuest
@@ -540,14 +568,14 @@ local function matchQuestFromTooltip(unit, tooltipInfo, questEntries)
             if entry.questID then
                 local related = unitIsRelatedToQuest(unit, entry.questID)
                 if related then
-                    return entry
+                    return entry, "unit-related"
                 end
             end
         end
     end
 
     if not tooltipInfo then
-        return nil
+        return nil, nil
     end
 
     local normalizedTooltipLines = tooltipInfo.normalizedLines
@@ -561,14 +589,14 @@ local function matchQuestFromTooltip(unit, tooltipInfo, questEntries)
             if normalizedQuestName then
                 for _, line in ipairs(normalizedTooltipLines) do
                     if line == normalizedQuestName or line:find(normalizedQuestName, 1, true) or normalizedQuestName:find(line, 1, true) then
-                        return entry
+                        return entry, "tooltip-name"
                     end
                 end
             end
         end
     end
 
-    return nil
+    return nil, nil
 end
 
 local function classifyUnit(unitData)
@@ -578,25 +606,46 @@ local function classifyUnit(unitData)
     end
 
     local now = GetTime()
+    local questTimestamp = questCache.timestamp or 0
+    local questDataExpired = (now - questTimestamp) >= QUEST_CACHE_SECONDS
     local cached = unitCache[guid]
-    if cached and now - cached.time < UNIT_CACHE_SECONDS then
-        return cached.result
+    if cached then
+        local expires = cached.expires or (cached.time and (cached.time + UNIT_CACHE_SECONDS)) or 0
+        local cacheValid = not questDataExpired and now < expires
+        local questStampMatch = not cached.questTimestamp or cached.questTimestamp == questTimestamp
+        if cacheValid and questStampMatch then
+            return cached.result
+        end
     end
 
     local unit = unitData.unit
     local unitName = UnitName(unit)
     if not unitName or unitName == "" then
-        unitCache[guid] = { time = now, result = nil }
+        unitCache[guid] = {
+            result = nil,
+            expires = now + UNIT_CACHE_SECONDS,
+            questTimestamp = questCache.timestamp,
+        }
         return nil
     end
 
     local tooltipInfo = parseTooltip(unit)
     local questEntries = refreshQuestCache()
-    local questMatch = matchQuestFromTooltip(unit, tooltipInfo, questEntries)
+    local questMatch, questMatchSource = matchQuestFromTooltip(unit, tooltipInfo, questEntries)
     local questName = questMatch and questMatch.questName or nil
     local questID = questMatch and questMatch.questID or nil
     local isWorldQuest = questMatch and questMatch.isWorldQuest or false
     local isBonusObjective = questMatch and questMatch.isBonusObjective or false
+    local questType = nil
+    if questMatch then
+        if isBonusObjective then
+            questType = "Bonus"
+        elseif isWorldQuest then
+            questType = "World"
+        else
+            questType = "Regular"
+        end
+    end
     local mythicStatus = getMythicScenarioStatus()
     local inChallengeMode = mythicStatus and mythicStatus.isActive
     local hasSoftTarget = hasQuestItemIcon(unit)
@@ -664,6 +713,8 @@ local function classifyUnit(unitData)
         reason = reason,
         questName = questName,
         questID = questID,
+        questType = questType,
+        questMatchSource = questMatchSource,
         tooltipLines = tooltipInfo.lines,
         isWorldQuest = isWorldQuest,
         isBonusObjective = isBonusObjective,
@@ -696,7 +747,16 @@ local function classifyUnit(unitData)
         end
     end
 
-    unitCache[guid] = { time = now, result = result }
+    local cacheDuration = UNIT_CACHE_SECONDS
+    if result.hasQuestObjectiveMatch and not result.hasTooltipObjective then
+        cacheDuration = UNIT_CACHE_PENDING_OBJECTIVE_SECONDS
+    end
+
+    unitCache[guid] = {
+        result = result,
+        expires = now + cacheDuration,
+        questTimestamp = questCache.timestamp,
+    }
     return result
 end
 
@@ -754,4 +814,8 @@ end
 
 function addon:ClassifyUnit(unitData)
     return classifyUnit(unitData)
+end
+
+function addon:ResetCaches()
+    resetCaches()
 end
