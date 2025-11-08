@@ -44,31 +44,32 @@ jobs:
           fi
           echo "Found tag: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          SANITIZED="${TAG#v}"
+          SANITIZED="${SANITIZED#.}"
+          echo "Sanitized version: $SANITIZED"
+          echo "sanitized=$SANITIZED" >> "$GITHUB_OUTPUT"
 
       - name: Update TOC version
         if: steps.tagcheck.outputs.release == 'true'
         shell: bash
         run: |
-          VERSION="${{ steps.ver.outputs.tag }}"
-          # Remove 'v' prefix if present (v1.2.3 -> 1.2.3)
-          VERSION="${VERSION#v}"
-          # Remove leading period if present (v.1.2.3 -> 1.2.3)
-          VERSION="${VERSION#.}"
+          VERSION="${{ steps.ver.outputs.sanitized }}"
           echo "Updating TOC file to version $VERSION"
           sed -i "s/^## Version:.*/## Version: $VERSION/" next.toc
           echo "TOC file updated:"
           grep "^## Version:" next.toc
 
       - name: Build zip (git archive)
+        id: buildzip
         if: steps.tagcheck.outputs.release == 'true'
         shell: bash
         run: |
-          VERSION="${{ steps.ver.outputs.tag }}"
-          ZIP_NAME="next.zip"
+          VERSION="${{ steps.ver.outputs.sanitized }}"
+          ZIP_NAME="next.v.${VERSION}.zip"
           echo "Building $ZIP_NAME (version $VERSION)"
           # Create zip excluding git files and GitHub workflows
           zip -r "$ZIP_NAME" . -x '*.git*' -x '*.github*' -x 'README.md' -x 'CHANGELOG.md'
-          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         if: steps.tagcheck.outputs.release == 'true'
@@ -76,5 +77,5 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ver.outputs.tag }}
-          files: next.zip
+          files: ${{ steps.buildzip.outputs.zip_name }}
           prerelease: false
