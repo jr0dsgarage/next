@@ -264,6 +264,7 @@ local function parseTooltip(unit)
     local info = {
         hasQuestObjective = false,
         hasCompletedObjective = false,
+        hasEnemyForcesLine = false,
         lines = {},
         normalizedLines = nil,
     }
@@ -276,42 +277,44 @@ local function parseTooltip(unit)
     local lineCount = tooltipScanner:NumLines() or 0
     for index = 2, lineCount do
         local line = _G[tooltipScanner:GetName() .. "TextLeft" .. index]
-        if line then
-            local text = line:GetText()
-            if text and text ~= "" then
-                local sanitized = getCachedTooltipText(text)
-
-                if sanitized and not uniqueLines[sanitized] then
+        local text = line and line:GetText()
+        if text and text ~= "" then
+            local sanitized = getCachedTooltipText(text)
+            if sanitized and sanitized ~= "" then
+                if not uniqueLines[sanitized] then
                     uniqueLines[sanitized] = true
                     info.lines[#info.lines + 1] = sanitized
                 end
 
-                if sanitized then
-                    local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
-                    if current and total then
-                        local currentNum = tonumber(current)
-                        local totalNum = tonumber(total)
-                        if currentNum and totalNum then
-                            if currentNum >= totalNum then
+                local lower = strlower(sanitized)
+                local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
+                if isEnemyForcesLine then
+                    info.hasEnemyForcesLine = true
+                end
+
+                local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
+                if current and total and not isEnemyForcesLine then
+                    local currentNum = tonumber(current)
+                    local totalNum = tonumber(total)
+                    if currentNum and totalNum then
+                        if currentNum >= totalNum then
+                            info.hasCompletedObjective = true
+                        else
+                            info.hasQuestObjective = true
+                        end
+                    end
+                end
+
+                local percentValue = sanitized:match("(%d?%d?%d)%%")
+                if percentValue then
+                    local isThreatLine = lower:find("threat", 1, true) ~= nil
+                    if not isThreatLine and not isEnemyForcesLine then
+                        local percentNum = tonumber(percentValue)
+                        if percentNum then
+                            if percentNum >= 100 then
                                 info.hasCompletedObjective = true
                             else
                                 info.hasQuestObjective = true
-                            end
-                        end
-                    end
-
-                    local percentValue = sanitized:match("(%d?%d?%d)%%")
-                    if percentValue then
-                        local lower = strlower(sanitized)
-                        local isThreatLine = lower:find("threat", 1, true) ~= nil
-                        if not isThreatLine then
-                            local percentNum = tonumber(percentValue)
-                            if percentNum then
-                                if percentNum >= 100 then
-                                    info.hasCompletedObjective = true
-                                else
-                                    info.hasQuestObjective = true
-                                end
                             end
                         end
                     end
@@ -698,6 +701,9 @@ local function classifyUnit(unitData)
             local reactionToPlayer = UnitReaction and UnitReaction(unit, "player")
             local hostile = not reactionToPlayer or reactionToPlayer <= 4
             local enemyForcesAvailable = mythicStatus and mythicStatus.hasEnemyForces and not mythicStatus.enemyForcesComplete
+            if not enemyForcesAvailable and tooltipInfo.hasEnemyForcesLine then
+                enemyForcesAvailable = not tooltipInfo.hasCompletedObjective
+            end
             if isNpc and hostile and enemyForcesAvailable then
                 reason = "Mythic Objective"
                 isMythicEnemyForces = true
