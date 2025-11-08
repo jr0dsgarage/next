@@ -1,4 +1,5 @@
-# next - A Target highlighter
+<img width="1024" height="1024" alt="next" src="https://github.com/user-attachments/assets/116e95f1-68e0-4c6a-8358-f90a65dce95d" />
+#next - A Target highlighter
 
 next is a World of Warcraft addon that helps you decide your next best target by highlighting the nameplates of enemies that are quest objectives.
 
