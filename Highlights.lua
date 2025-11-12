@@ -137,12 +137,20 @@ local function applyBlizzardHighlight(self, healthBar, style, plate)
     local offset = (style.offset or 0) + 4  -- Remap: user's 0 = actual 4 (Blizzard's size)
 
     local texture = createStyledTexture(self, healthBar, color)
+    texture:SetDrawLayer("OVERLAY", 0)
     texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
     texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
     
     -- Use Blizzard's nameplate selection texture (has rounded corners)
     if texture.SetAtlas then
-        pcall(function() texture:SetAtlas("UI-HUD-Nameplates-Selected", true) end)
+        local success = pcall(function() 
+            texture:SetAtlas("UI-HUD-Nameplates-Selected", true) 
+        end)
+        if not success then
+            texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+        end
+    else
+        texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
     end
 end
 
