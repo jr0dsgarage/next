@@ -19,7 +19,7 @@ local DEFAULTS = {
     questObjectiveOffset = 2,
     questObjectiveStyle = "outline",
     questItemEnabled = true,
-    questItemColor = { r = 1, g = 0, b = 1, a = 0.9 },
+    questItemColor = { r = 0, g = 1, b = 1, a = 0.9 },  -- Cyan
     questItemThickness = 3,
     questItemOffset = 2,
     questItemStyle = "outline",

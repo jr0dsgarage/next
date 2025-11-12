@@ -272,32 +272,40 @@ local function parseTooltip(unit)
     local uniqueLines = {}
 
     tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
-    tooltipScanner:SetUnit(unit)
+    
+    -- Wrap SetUnit in pcall to handle Blizzard PTR Feedback addon "secret value" errors
+    local success = pcall(function() tooltipScanner:SetUnit(unit) end)
+    if not success then
+        tooltipScanner:Hide()
+        return info
+    end
 
     local lineCount = tooltipScanner:NumLines() or 0
     for index = 2, lineCount do
         local line = _G[tooltipScanner:GetName() .. "TextLeft" .. index]
-        local text = line and line:GetText()
-        if text and text ~= "" then
-            local sanitized = getCachedTooltipText(text)
-            if sanitized and sanitized ~= "" then
-                if not uniqueLines[sanitized] then
-                    uniqueLines[sanitized] = true
-                    info.lines[#info.lines + 1] = sanitized
-                end
+        if line then
+            -- Wrap GetText in pcall to handle "secret value" errors in Midnight beta
+            local textSuccess, text = pcall(function() return line:GetText() end)
+            if textSuccess and text and text ~= "" then
+                local sanitized = getCachedTooltipText(text)
+                if sanitized and sanitized ~= "" then
+                    if not uniqueLines[sanitized] then
+                        uniqueLines[sanitized] = true
+                        info.lines[#info.lines + 1] = sanitized
+                    end
 
-                local lower = strlower(sanitized)
-                local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
-                if isEnemyForcesLine then
-                    info.hasEnemyForcesLine = true
-                end
+                    local lower = strlower(sanitized)
+                    local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
+                    if isEnemyForcesLine then
+                        info.hasEnemyForcesLine = true
+                    end
 
-                local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
-                if current and total and not isEnemyForcesLine then
-                    local currentNum = tonumber(current)
-                    local totalNum = tonumber(total)
-                    if currentNum and totalNum then
-                        if currentNum >= totalNum then
+                    local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
+                    if current and total and not isEnemyForcesLine then
+                        local currentNum = tonumber(current)
+                        local totalNum = tonumber(total)
+                        if currentNum and totalNum then
+                            if currentNum >= totalNum then
                             info.hasCompletedObjective = true
                         else
                             info.hasQuestObjective = true
@@ -305,16 +313,17 @@ local function parseTooltip(unit)
                     end
                 end
 
-                local percentValue = sanitized:match("(%d?%d?%d)%%")
-                if percentValue then
-                    local isThreatLine = lower:find("threat", 1, true) ~= nil
-                    if not isThreatLine and not isEnemyForcesLine then
-                        local percentNum = tonumber(percentValue)
-                        if percentNum then
-                            if percentNum >= 100 then
-                                info.hasCompletedObjective = true
-                            else
-                                info.hasQuestObjective = true
+                    local percentValue = sanitized:match("(%d?%d?%d)%%")
+                    if percentValue then
+                        local isThreatLine = lower:find("threat", 1, true) ~= nil
+                        if not isThreatLine and not isEnemyForcesLine then
+                            local percentNum = tonumber(percentValue)
+                            if percentNum then
+                                if percentNum >= 100 then
+                                    info.hasCompletedObjective = true
+                                else
+                                    info.hasQuestObjective = true
+                                end
                             end
                         end
                     end
@@ -335,9 +344,27 @@ local function hasQuestItemIcon(unit)
     end
 
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
-    local frame = nameplate and nameplate.UnitFrame and nameplate.UnitFrame.SoftTargetFrame
-    if frame and frame:IsShown() and frame.Icon and frame.Icon:IsShown() then
-        return true
+    if not nameplate then
+        return false
+    end
+    
+    -- Try multiple possible locations for the SoftTargetFrame
+    local softTargetFrame = nil
+    if nameplate.UnitFrame then
+        softTargetFrame = nameplate.UnitFrame.SoftTargetFrame
+                      or nameplate.UnitFrame.softTargetFrame
+    end
+    
+    -- Also check direct child of nameplate
+    if not softTargetFrame then
+        softTargetFrame = nameplate.SoftTargetFrame or nameplate.softTargetFrame
+    end
+    
+    if softTargetFrame and softTargetFrame:IsShown() then
+        -- Only return true if icon exists and is shown
+        if softTargetFrame.Icon and softTargetFrame.Icon:IsShown() then
+            return true
+        end
     end
 
     return false
@@ -663,16 +690,31 @@ local function classifyUnit(unitData)
     local isMythicBoss = false
     local isMythicEnemyForces = false
     local mythicBossName
-    if hasSoftTarget then
-        reason = "Has Quest Item"
-    elseif tooltipInfo.hasQuestObjective then
-        if isBonusObjective then
-            reason = "Bonus Objective"
-        elseif isWorldQuest then
-            reason = "World Quest"
+    
+    -- First check if this unit has a quest objective in the tooltip
+    -- If it does AND has a quest item icon, it's a quest item target
+    -- If it has a quest objective but NO quest item icon, it's a regular quest objective
+    -- If it has a quest item icon but NO quest objective, ignore it (false positive)
+    
+    if tooltipInfo.hasQuestObjective then
+        if hasSoftTarget then
+            -- Both quest objective AND quest item icon = Quest Item Target
+            reason = "Has Quest Item"
         else
-            reason = "Quest Objective"
+            -- Quest objective but no quest item icon = Regular Quest Objective
+            if isBonusObjective then
+                reason = "Bonus Objective"
+            elseif isWorldQuest then
+                reason = "World Quest"
+            else
+                reason = "Quest Objective"
+            end
         end
+    elseif hasSoftTarget then
+        -- Has quest item icon but no quest objective in tooltip
+        -- This is likely a false positive (e.g., Plains Doe case)
+        -- Don't set a reason, which means it won't be highlighted
+        reason = nil
     end
 
     if not reason and inChallengeMode then

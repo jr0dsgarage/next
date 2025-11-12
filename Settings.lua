@@ -23,11 +23,11 @@ local ui = {
 
 local highlightOptions = {
     { key = "currentTarget", label = "Current Target" },
-    { key = "questObjective", label = "Quest Objectives" },
-    { key = "questItem", label = "Quest Items" },
-    { key = "worldQuest", label = "World Quests" },
-    { key = "bonusObjective", label = "Bonus Objectives" },
-    { key = "mythicObjective", label = "Mythic Dungeon Objectives" },
+    { key = "questObjective", label = "Quest Objective Target" },
+    { key = "questItem", label = "Quest Item Target" },
+    { key = "worldQuest", label = "World Quest Objective Target" },
+    { key = "bonusObjective", label = "Bonus Objective Target" },
+    { key = "mythicObjective", label = "Mythic+ Dungeon Target" },
 }
 
 local highlightStyleChoices = {
@@ -424,19 +424,24 @@ local function useColorPicker(color, onChanged)
 end
 
 local function createHighlightRow(anchor, option, index)
-    local rowOffset = -12 - (index - 1) * 56
+    local rowOffset = -12 - (index - 1) * 68  -- Increased spacing for two-line layout
 
+    -- Label on first line
     local label = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, rowOffset)
-    label:SetWidth(140)
+    label:SetWidth(600)
     label:SetJustifyH("LEFT")
     label:SetText(option.label)
 
+    -- All controls on second line, below the label
+    local controlY = rowOffset - 18
+
     local checkbox = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
-    checkbox:SetPoint("LEFT", label, "RIGHT", 4, 0)
+    checkbox:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, controlY)
+    checkbox.Text:SetText("")  -- Remove text, label is above
 
     local dropdown = CreateFrame("Frame", nil, content, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("LEFT", checkbox, "RIGHT", -6, -2)
+    dropdown:SetPoint("LEFT", checkbox, "RIGHT", -12, -2)
     UIDropDownMenu_SetWidth(dropdown, 120)
     UIDropDownMenu_JustifyText(dropdown, "LEFT")
 
@@ -455,7 +460,6 @@ local function createHighlightRow(anchor, option, index)
 
     local thickness = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
     thickness:SetPoint("LEFT", colorButton, "RIGHT", 12, 0)
-    thickness:SetPoint("CENTER", label, "CENTER", 0, -2)
     thickness:SetMinMaxValues(1, 5)
     thickness:SetValueStep(1)
     thickness:SetObeyStepOnDrag(true)
@@ -468,7 +472,6 @@ local function createHighlightRow(anchor, option, index)
 
     local offset = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
     offset:SetPoint("LEFT", thickness, "RIGHT", 12, 0)
-    offset:SetPoint("CENTER", thickness, "CENTER", 0, 0)
     offset:SetMinMaxValues(0, 5)
     offset:SetValueStep(1)
     offset:SetObeyStepOnDrag(true)
@@ -698,8 +701,13 @@ local function buildPreviewSection()
 
     local frame = CreateFrame("Frame", nil, content)
     frame:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -22)
-    frame:SetSize(150, 50)
+    frame:SetSize(150, 65)  -- Increased height for header
     ui.preview.frame = frame
+
+    -- Add "Preview" header
+    local previewHeader = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    previewHeader:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 0, -2)
+    previewHeader:SetText("Preview")
 
     local borderFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     borderFrame:SetPoint("CENTER", frame, "CENTER", 0, 0)
@@ -761,11 +769,7 @@ local function buildSettingsUI()
     buildPreviewSection()
 
     local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    local headerOffset = -18
-    if ui.preview.frame then
-        headerOffset = -(ui.preview.frame:GetHeight() + 30)
-    end
-    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, headerOffset)
+    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, -18)
     header:SetText("Highlight Styles")
 
     for index, option in ipairs(highlightOptions) do
@@ -774,7 +778,7 @@ local function buildSettingsUI()
         ui.highlightRows[option.key] = row
     end
 
-    content:SetHeight(240 + #highlightOptions * 56)
+    content:SetHeight(240 + #highlightOptions * 68)  -- Updated for two-line layout
 end
 
 panel:SetScript("OnShow", function()

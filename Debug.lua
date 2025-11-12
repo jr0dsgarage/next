@@ -186,6 +186,73 @@ SlashCmdList["NEXTSTRUCTURE"] = function()
     end
 end
 
+-- Diagnostic command to find quest item icon (SoftTargetFrame)
+SLASH_NEXTSOFTTARGET1 = "/nextsofttarget"
+SlashCmdList["NEXTSOFTTARGET"] = function()
+    local plate = C_NamePlate.GetNamePlateForUnit("target")
+    if not plate then
+        print("No target nameplate found")
+        return
+    end
+    
+    print("=== Quest Item Icon (SoftTargetFrame) Search ===")
+    
+    local function searchForSoftTarget(obj, path, depth, visited)
+        depth = depth or 0
+        visited = visited or {}
+        
+        if depth > 5 then return end
+        if visited[obj] then return end
+        visited[obj] = true
+        
+        -- Check common soft target / quest item names
+        local softTargetNames = {
+            "SoftTargetFrame", "softTargetFrame", "QuestItemIcon",
+            "questItemIcon", "QuestIcon", "questIcon"
+        }
+        
+        for _, name in ipairs(softTargetNames) do
+            if type(obj) == "table" or type(obj) == "userdata" then
+                local success, value = pcall(function() return obj[name] end)
+                if success and value ~= nil then
+                    local isFrame = pcall(function() return value:GetObjectType() end)
+                    if isFrame then
+                        local shown = value.IsShown and value:IsShown()
+                        print(string.format("✓ Found: %s.%s <%s> Visible: %s", path, name, value:GetObjectType(), tostring(shown)))
+                        
+                        -- Check for Icon child
+                        if value.Icon then
+                            local iconShown = value.Icon.IsShown and value.Icon:IsShown()
+                            print(string.format("  Has Icon: Visible: %s", tostring(iconShown)))
+                        end
+                    else
+                        print(string.format("  Found: %s.%s = %s", path, name, tostring(value)))
+                    end
+                end
+            end
+        end
+        
+        -- Recursively search children
+        if type(obj) == "table" or type(obj) == "userdata" then
+            local success, numChildren = pcall(function() return obj:GetNumChildren() end)
+            if success and numChildren then
+                for i = 1, numChildren do
+                    local child = select(i, obj:GetChildren())
+                    if child then
+                        local childName = child.GetName and child:GetName() or ("child" .. i)
+                        searchForSoftTarget(child, path .. "." .. childName, depth + 1, visited)
+                    end
+                end
+            end
+        end
+    end
+    
+    searchForSoftTarget(plate, "plate", 0)
+    if plate.UnitFrame then
+        searchForSoftTarget(plate.UnitFrame, "plate.UnitFrame", 0)
+    end
+end
+
 local function clamp01(value)
     if not value then
         return 0
