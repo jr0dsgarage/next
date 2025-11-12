@@ -141,12 +141,17 @@ local function applyBlizzardHighlight(self, healthBar, style, plate)
     texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
     texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
     
+    -- Reset texture coordinates in case this texture was previously used for something else
+    texture:SetTexCoord(0, 1, 0, 1)
+    texture:SetBlendMode("BLEND")
+    
     -- Use Blizzard's nameplate selection texture (has rounded corners)
     if texture.SetAtlas then
         local success = pcall(function() 
             texture:SetAtlas("UI-HUD-Nameplates-Selected", true) 
         end)
         if not success then
+            -- Fallback to simple white texture
             texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
         end
     else
