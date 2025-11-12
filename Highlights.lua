@@ -59,6 +59,69 @@ SlashCmdList["NEXTTEXTURE"] = function()
     inspectFrame(plate, "Nameplate", 0)
 end
 
+-- Diagnostic command to inspect mouseover frame textures
+SLASH_NEXTINSPECT1 = "/nextinspect"
+SlashCmdList["NEXTINSPECT"] = function()
+    local frame = GetMouseFoci and GetMouseFoci()[1] or nil
+    if not frame then
+        print("No frame under mouse")
+        return
+    end
+    
+    print("=== Frame Texture Inspection ===")
+    print("Frame name: " .. (frame:GetName() or "Anonymous"))
+    print("Frame type: " .. (frame:GetObjectType() or "Unknown"))
+    
+    local function inspectFrame(f, name, depth)
+        depth = depth or 0
+        if depth > 4 then return end
+        local indent = string.rep("  ", depth)
+        
+        -- Check textures
+        for i = 1, f:GetNumRegions() do
+            local region = select(i, f:GetRegions())
+            if region and region:IsObjectType("Texture") then
+                local texture = region:GetTexture()
+                local atlas = (region.GetAtlas and region:GetAtlas()) or nil
+                if texture or atlas then
+                    print(indent .. name .. " Texture " .. i .. ":")
+                    if atlas then
+                        print(indent .. "  Atlas: " .. tostring(atlas))
+                    end
+                    if texture then
+                        print(indent .. "  Path: " .. tostring(texture))
+                    end
+                    -- Check if it's animating
+                    if region.GetAnimationGroups then
+                        local numAnims = (region.GetNumAnimationGroups and region:GetNumAnimationGroups()) or 0
+                        if numAnims > 0 then
+                            print(indent .. "  Animations: " .. numAnims .. " groups")
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Check children
+        for i = 1, f:GetNumChildren() do
+            local child = select(i, f:GetChildren())
+            if child then
+                inspectFrame(child, name .. ".child" .. i, depth + 1)
+            end
+        end
+    end
+    
+    inspectFrame(frame, "Frame", 0)
+    
+    -- Also check parent for context
+    local parent = frame:GetParent()
+    if parent then
+        print("\n=== Parent Frame ===")
+        print("Parent name: " .. (parent:GetName() or "Anonymous"))
+        inspectFrame(parent, "Parent", 0)
+    end
+end
+
 local function releaseTexture(texture)
     if not texture then
         return
@@ -171,9 +234,97 @@ local function applyBlizzardHighlight(self, healthBar, style, plate)
     table.insert(self.highlights, texture)
 end
 
+local function applyGlowHighlight(self, healthBar, style, plate)
+    local color = style.color
+    local thickness = style.thickness or 2
+    local offset = (style.offset or 0) - 4  -- Reduce offset so glow sits tighter to healthbar
+
+    -- Helper to create a glow texture piece using atlas
+    local function createGlowTexture(atlasName, useAtlasSize)
+        local texture = acquireTexture()
+        texture:SetParent(healthBar)
+        texture:SetDrawLayer("OVERLAY", 1)
+        
+        -- Try to set the atlas
+        if texture.SetAtlas then
+            local success = pcall(function() 
+                texture:SetAtlas(atlasName, useAtlasSize or false)
+            end)
+            if not success then
+                texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+            end
+        else
+            texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+        end
+        
+        texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
+        texture:SetBlendMode("ADD")
+        texture:Show()
+        table.insert(self.highlights, texture)
+        return texture
+    end
+
+    local edgeAtlases = {
+        top = "_ButtonGreenGlow-NineSlice-EdgeTop",
+        bottom = "_ButtonGreenGlow-NineSlice-EdgeBottom", 
+        left = "!ButtonGreenGlow-NineSlice-EdgeLeft",
+        right = "!ButtonGreenGlow-NineSlice-EdgeRight",
+    }
+    
+    local cornerAtlas = "ButtonGreenGlow-NineSlice-Corner"
+
+    -- Create edges
+    local top = createGlowTexture(edgeAtlases.top, false)
+    top:SetPoint("BOTTOMLEFT", healthBar, "TOPLEFT", -offset, offset)
+    top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
+    top:SetHeight(16)
+
+    local bottom = createGlowTexture(edgeAtlases.bottom, false)
+    bottom:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", -offset, -offset)
+    bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    bottom:SetHeight(16)
+
+    -- Only show left/right edges if offset is greater than 1
+    if (style.offset or 0) > 1 then
+        local left = createGlowTexture(edgeAtlases.left, false)
+        left:SetPoint("TOPRIGHT", healthBar, "TOPLEFT", -offset, offset)
+        left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
+        left:SetWidth(16)
+
+        local right = createGlowTexture(edgeAtlases.right, false)
+        right:SetPoint("TOPLEFT", healthBar, "TOPRIGHT", offset, offset)
+        right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
+        right:SetWidth(16)
+    end
+
+    -- Create corners with proper rotation via texcoords
+    local cornerSize = 16
+    
+    local topLeft = createGlowTexture(cornerAtlas, true)
+    topLeft:SetSize(cornerSize, cornerSize)
+    topLeft:SetPoint("BOTTOMRIGHT", healthBar, "TOPLEFT", -offset, offset)
+    topLeft:SetTexCoord(0, 1, 0, 1)  -- Flipped horizontally
+
+    local topRight = createGlowTexture(cornerAtlas, true)
+    topRight:SetSize(cornerSize, cornerSize)
+    topRight:SetPoint("BOTTOMLEFT", healthBar, "TOPRIGHT", offset, offset)
+    topRight:SetTexCoord(1, 0, 0, 1)
+
+    local bottomLeft = createGlowTexture(cornerAtlas, true)
+    bottomLeft:SetSize(cornerSize, cornerSize)
+    bottomLeft:SetPoint("TOPRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
+    bottomLeft:SetTexCoord(0, 1, 1, 0)
+
+    local bottomRight = createGlowTexture(cornerAtlas, true)
+    bottomRight:SetSize(cornerSize, cornerSize)
+    bottomRight:SetPoint("TOPLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    bottomRight:SetTexCoord(1, 0, 1, 0)
+end
+
 local highlightHandlers = {
     outline = applyOutlineHighlight,
     blizzard = applyBlizzardHighlight,
+    glow = applyGlowHighlight,
 }
 
 local function determineStyle(result, currentGuid)

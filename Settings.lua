@@ -33,6 +33,7 @@ local highlightOptions = {
 local highlightStyleChoices = {
     { value = "outline", label = "Outline" },
     { value = "blizzard", label = "Blizzard" },
+    { value = "glow", label = "Glow" },
 }
 
 local function styleLabelFor(value)
@@ -170,9 +171,107 @@ local function applyBlizzardPreview(style)
     ui.preview.highlights[#ui.preview.highlights + 1] = texture
 end
 
+local function applyGlowPreview(style)
+    if not ui.preview or not ui.preview.healthBar then
+        return
+    end
+
+    ensurePreviewHighlights()
+
+    local healthBar = ui.preview.healthBar
+    local color = style.color or {}
+    local r = color.r or 1
+    local g = color.g or 1
+    local b = color.b or 1
+    local a = color.a or 1
+    if not style.enabled then
+        a = a * 0.35
+    end
+
+    local thickness = style.thickness or 2
+    local offset = (style.offset or 0) - 4  -- Reduce offset so glow sits tighter to healthbar
+
+    local function createGlowTexture(atlasName, useAtlasSize)
+        local texture = healthBar:CreateTexture(nil, "OVERLAY", nil, 1)
+        
+        if texture.SetAtlas then
+            local success = pcall(function() 
+                texture:SetAtlas(atlasName, useAtlasSize or false)
+            end)
+            if not success then
+                texture:SetTexture(WHITE_TEXTURE)
+            end
+        else
+            texture:SetTexture(WHITE_TEXTURE)
+        end
+        
+        texture:SetVertexColor(r, g, b, a)
+        texture:SetBlendMode("ADD")
+        texture:Show()
+        ui.preview.highlights[#ui.preview.highlights + 1] = texture
+        return texture
+    end
+
+    local edgeAtlases = {
+        top = "_ButtonGreenGlow-NineSlice-EdgeTop",
+        bottom = "_ButtonGreenGlow-NineSlice-EdgeBottom",
+        left = "!ButtonGreenGlow-NineSlice-EdgeLeft",
+        right = "!ButtonGreenGlow-NineSlice-EdgeRight",
+    }
+    
+    local cornerAtlas = "ButtonGreenGlow-NineSlice-Corner"
+
+    -- Create edges
+    local top = createGlowTexture(edgeAtlases.top, false)
+    top:SetPoint("BOTTOMLEFT", healthBar, "TOPLEFT", -offset, offset)
+    top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
+    top:SetHeight(16)
+
+    local bottom = createGlowTexture(edgeAtlases.bottom, false)
+    bottom:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", -offset, -offset)
+    bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    bottom:SetHeight(16)
+
+    -- Only show left/right edges if offset is greater than 1
+    if (style.offset or 0) > 1 then
+        local left = createGlowTexture(edgeAtlases.left, false)
+        left:SetPoint("TOPRIGHT", healthBar, "TOPLEFT", -offset, offset)
+        left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
+        left:SetWidth(16)
+
+        local right = createGlowTexture(edgeAtlases.right, false)
+        right:SetPoint("TOPLEFT", healthBar, "TOPRIGHT", offset, offset)
+        right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
+        right:SetWidth(16)
+    end
+
+    -- Create corners with proper rotation via texcoords
+    local cornerSize = 16
+    
+    local topLeft = createGlowTexture(cornerAtlas, true)
+    topLeft:SetSize(cornerSize, cornerSize)
+    topLeft:SetPoint("BOTTOMRIGHT", healthBar, "TOPLEFT", -offset, offset)
+
+    local topRight = createGlowTexture(cornerAtlas, true)
+    topRight:SetSize(cornerSize, cornerSize)
+    topRight:SetPoint("BOTTOMLEFT", healthBar, "TOPRIGHT", offset, offset)
+    topRight:SetTexCoord(1, 0, 0, 1)
+
+    local bottomLeft = createGlowTexture(cornerAtlas, true)
+    bottomLeft:SetSize(cornerSize, cornerSize)
+    bottomLeft:SetPoint("TOPRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
+    bottomLeft:SetTexCoord(0, 1, 1, 0)
+
+    local bottomRight = createGlowTexture(cornerAtlas, true)
+    bottomRight:SetSize(cornerSize, cornerSize)
+    bottomRight:SetPoint("TOPLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    bottomRight:SetTexCoord(1, 0, 1, 0)
+end
+
 local previewHandlers = {
     outline = applyOutlinePreview,
     blizzard = applyBlizzardPreview,
+    glow = applyGlowPreview,
 }
 
 local function applyPreviewHighlight(style)
