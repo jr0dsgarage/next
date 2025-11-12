@@ -110,6 +110,82 @@ SlashCmdList["NEXTINSPECT"] = function()
     end
 end
 
+-- Diagnostic command to inspect nameplate structure
+SLASH_NEXTSTRUCTURE1 = "/nextstructure"
+SlashCmdList["NEXTSTRUCTURE"] = function()
+    local plate = C_NamePlate.GetNamePlateForUnit("target")
+    if not plate then
+        print("No target nameplate found")
+        return
+    end
+    
+    print("=== Nameplate Structure Analysis ===")
+    
+    local function printValue(name, value, indent)
+        indent = indent or ""
+        local valueType = type(value)
+        if valueType == "table" or valueType == "userdata" then
+            local objType = (value.GetObjectType and pcall(value.GetObjectType, value)) and value:GetObjectType() or "table"
+            print(indent .. name .. " = <" .. objType .. ">")
+        else
+            print(indent .. name .. " = " .. tostring(value))
+        end
+    end
+    
+    local function inspectStructure(obj, name, depth, visited)
+        depth = depth or 0
+        visited = visited or {}
+        
+        if depth > 3 then return end
+        if visited[obj] then return end
+        visited[obj] = true
+        
+        local indent = string.rep("  ", depth)
+        
+        -- Try to get common properties
+        local properties = {
+            "unit", "namePlateUnitToken", "displayedUnit",
+            "healthBar", "Health", "HealthBar",
+            "UnitFrame", "healthBars", "HealthBarsContainer"
+        }
+        
+        for _, prop in ipairs(properties) do
+            if type(obj) == "table" or (type(obj) == "userdata" and obj[prop] ~= nil) then
+                local success, value = pcall(function() return obj[prop] end)
+                if success and value ~= nil then
+                    printValue(prop, value, indent)
+                    if type(value) == "table" or type(value) == "userdata" then
+                        inspectStructure(value, prop, depth + 1, visited)
+                    end
+                end
+            end
+        end
+    end
+    
+    inspectStructure(plate, "Nameplate", 0)
+    
+    -- Try to resolve healthbar
+    print("\n=== Healthbar Resolution Test ===")
+    if plate.UnitFrame and plate.UnitFrame.healthBar then
+        print("✓ Found: plate.UnitFrame.healthBar")
+    end
+    if plate.UnitFrame and plate.UnitFrame.healthBars and plate.UnitFrame.healthBars.healthBar then
+        print("✓ Found: plate.UnitFrame.healthBars.healthBar")
+    end
+    if plate.UnitFrame and plate.UnitFrame.HealthBarsContainer and plate.UnitFrame.HealthBarsContainer.healthBar then
+        print("✓ Found: plate.UnitFrame.HealthBarsContainer.healthBar")
+    end
+    if plate.healthBar then
+        print("✓ Found: plate.healthBar")
+    end
+    if plate.UnitFrame and plate.UnitFrame.Health then
+        print("✓ Found: plate.UnitFrame.Health")
+    end
+    if plate.UnitFrame and plate.UnitFrame.HealthBar then
+        print("✓ Found: plate.UnitFrame.HealthBar")
+    end
+end
+
 local function clamp01(value)
     if not value then
         return 0

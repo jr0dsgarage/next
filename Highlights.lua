@@ -31,29 +31,64 @@ local function resolveHealthBar(plate)
         return nil
     end
 
-    if plate.UnitFrame then
-        if plate.UnitFrame.healthBar then
-            return plate.UnitFrame.healthBar
-        end
-        if plate.UnitFrame.healthBars and plate.UnitFrame.healthBars.healthBar then
-            return plate.UnitFrame.healthBars.healthBar
-        end
-        if plate.UnitFrame.HealthBarsContainer and plate.UnitFrame.HealthBarsContainer.healthBar then
-            return plate.UnitFrame.HealthBarsContainer.healthBar
+    -- Try various known healthbar locations in order of likelihood
+    local healthBarPaths = {
+        -- Midnight beta / TWW structures
+        function() return plate.UnitFrame and plate.UnitFrame.healthBar end,
+        function() return plate.UnitFrame and plate.UnitFrame.healthBars and plate.UnitFrame.healthBars.healthBar end,
+        function() return plate.UnitFrame and plate.UnitFrame.HealthBarsContainer and plate.UnitFrame.HealthBarsContainer.healthBar end,
+        -- Legacy/fallback structure
+        function() return plate.healthBar end,
+        -- Additional possible locations for future-proofing
+        function() return plate.UnitFrame and plate.UnitFrame.Health end,
+        function() return plate.UnitFrame and plate.UnitFrame.HealthBar end,
+    }
+
+    for _, pathFunc in ipairs(healthBarPaths) do
+        local success, healthBar = pcall(pathFunc)
+        if success and healthBar and healthBar.GetObjectType then
+            -- Verify it's actually a frame before returning
+            local isFrame = pcall(function() return healthBar:GetObjectType() end)
+            if isFrame then
+                return healthBar
+            end
         end
     end
 
-    return plate.healthBar
+    -- Log if we can't find healthbar (helps debug structure changes)
+    if addon.debugMode or NextTargetDB.debugMode then
+        local unitToken = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
+        local unitName = unitToken and UnitName(unitToken) or "unknown"
+        print(string.format("[next] Warning: Could not resolve healthbar for %s", unitName))
+    end
+
+    return nil
 end
 
 local function acquireNameplate(unitData)
     if unitData.frame then
         return unitData.frame
     end
+    
+    -- Safely get nameplate with fallbacks
     if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
-        return C_NamePlate.GetNamePlateForUnit(unitData.unit)
+        local success, plate = pcall(C_NamePlate.GetNamePlateForUnit, unitData.unit)
+        if success and plate then
+            return plate
+        end
     end
+    
     return nil
+end
+
+-- Shared helper to create and configure a basic texture
+local function createStyledTexture(self, healthBar, color)
+    local texture = acquireTexture()
+    texture:SetParent(healthBar)
+    texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
+    texture:Show()
+    table.insert(self.highlights, texture)
+    return texture
 end
 
 local function applyOutlineHighlight(self, healthBar, style, plate)
@@ -62,9 +97,7 @@ local function applyOutlineHighlight(self, healthBar, style, plate)
     local offset = style.offset or 1
 
     local function createTexture(point, relativePoint, xOffset, yOffset, width, height)
-        local texture = acquireTexture()
-        texture:SetParent(healthBar)
-        texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
+        local texture = createStyledTexture(self, healthBar, color)
         texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
         if width then
             texture:SetWidth(width)
@@ -72,18 +105,13 @@ local function applyOutlineHighlight(self, healthBar, style, plate)
         if height then
             texture:SetHeight(height)
         end
-        texture:Show()
-        table.insert(self.highlights, texture)
+        return texture
     end
 
     local function createCorner(point, relativePoint, xOffset, yOffset)
-        local texture = acquireTexture()
-        texture:SetParent(healthBar)
-        texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
+        local texture = createStyledTexture(self, healthBar, color)
         texture:SetSize(thickness, thickness)
         texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
-        texture:Show()
-        table.insert(self.highlights, texture)
     end
 
     createTexture("BOTTOMLEFT", "TOPLEFT", -offset, offset, nil, thickness)
@@ -106,15 +134,9 @@ end
 
 local function applyBlizzardHighlight(self, healthBar, style, plate)
     local color = style.color
-    local thickness = style.thickness or 2
     local offset = (style.offset or 0) + 4  -- Remap: user's 0 = actual 4 (Blizzard's size)
 
-    -- Create single highlight texture using Blizzard's nameplate selection atlas
-    local texture = acquireTexture()
-    texture:SetParent(healthBar)
-    texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
-    
-    -- Scale it larger than the healthbar to create a border effect
+    local texture = createStyledTexture(self, healthBar, color)
     texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
     texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
     
@@ -122,21 +144,17 @@ local function applyBlizzardHighlight(self, healthBar, style, plate)
     if texture.SetAtlas then
         pcall(function() texture:SetAtlas("UI-HUD-Nameplates-Selected", true) end)
     end
-    
-    texture:Show()
-    table.insert(self.highlights, texture)
 end
 
 local function applyGlowHighlight(self, healthBar, style, plate)
     local color = style.color
-    local thickness = style.thickness or 2
     local offset = (style.offset or 0) - 4  -- Reduce offset so glow sits tighter to healthbar
 
     -- Helper to create a glow texture piece using atlas
     local function createGlowTexture(atlasName, useAtlasSize)
-        local texture = acquireTexture()
-        texture:SetParent(healthBar)
+        local texture = createStyledTexture(self, healthBar, color)
         texture:SetDrawLayer("OVERLAY", 1)
+        texture:SetBlendMode("ADD")
         
         -- Try to set the atlas
         if texture.SetAtlas then
@@ -150,10 +168,6 @@ local function applyGlowHighlight(self, healthBar, style, plate)
             texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
         end
         
-        texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
-        texture:SetBlendMode("ADD")
-        texture:Show()
-        table.insert(self.highlights, texture)
         return texture
     end
 
