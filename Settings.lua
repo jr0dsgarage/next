@@ -32,6 +32,7 @@ local highlightOptions = {
 
 local highlightStyleChoices = {
     { value = "outline", label = "Outline" },
+    { value = "blizzard", label = "Blizzard" },
 }
 
 local function styleLabelFor(value)
@@ -137,8 +138,41 @@ local function applyOutlinePreview(style)
     addCorner("TOPLEFT", "BOTTOMRIGHT", offset, -offset)
 end
 
+local function applyBlizzardPreview(style)
+    if not ui.preview or not ui.preview.healthBar then
+        return
+    end
+
+    ensurePreviewHighlights()
+
+    local healthBar = ui.preview.healthBar
+    local color = style.color or {}
+    local r = color.r or 1
+    local g = color.g or 1
+    local b = color.b or 1
+    local a = color.a or 1
+    if not style.enabled then
+        a = a * 0.35
+    end
+
+    local offset = (style.offset or 0) + 4  -- Remap: user's 0 = actual 4 (Blizzard's size)
+
+    local texture = healthBar:CreateTexture(nil, "OVERLAY")
+    texture:SetVertexColor(r, g, b, a)
+    texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
+    texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    
+    if texture.SetAtlas then
+        pcall(function() texture:SetAtlas("UI-HUD-Nameplates-Selected", true) end)
+    end
+    
+    texture:Show()
+    ui.preview.highlights[#ui.preview.highlights + 1] = texture
+end
+
 local previewHandlers = {
     outline = applyOutlinePreview,
+    blizzard = applyBlizzardPreview,
 }
 
 local function applyPreviewHighlight(style)
@@ -466,6 +500,21 @@ local function bindHighlightRow(option, row)
                 NextTargetDB[styleKey] = choice.value
                 UIDropDownMenu_SetSelectedValue(row.dropdown, choice.value)
                 UIDropDownMenu_SetText(row.dropdown, choice.label)
+                
+                -- Enable/disable thickness slider based on style
+                local isBlizzard = choice.value == "blizzard"
+                if isBlizzard then
+                    row.thickness:Disable()
+                    row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
+                    row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
+                    row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
+                else
+                    row.thickness:Enable()
+                    row.thickness.Text:SetTextColor(1, 1, 1)
+                    row.thickness.Low:SetTextColor(1, 1, 1)
+                    row.thickness.High:SetTextColor(1, 1, 1)
+                end
+                
                 accentuate()
                 if ui.preview.activeKey == option.key then
                     updatePreview(option.key)
@@ -526,6 +575,20 @@ local function refreshHighlightRow(option, row)
     NextTargetDB[styleKey] = styleValue
     UIDropDownMenu_SetSelectedValue(row.dropdown, styleValue)
     UIDropDownMenu_SetText(row.dropdown, styleLabelFor(styleValue))
+    
+    -- Enable/disable thickness slider based on style
+    local isBlizzard = styleValue == "blizzard"
+    if isBlizzard then
+        row.thickness:Disable()
+        row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
+        row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
+        row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
+    else
+        row.thickness:Enable()
+        row.thickness.Text:SetTextColor(1, 1, 1)
+        row.thickness.Low:SetTextColor(1, 1, 1)
+        row.thickness.High:SetTextColor(1, 1, 1)
+    end
 end
 
 local function buildPreviewSection()

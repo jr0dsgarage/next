@@ -15,6 +15,50 @@ local function acquireTexture()
     return texture
 end
 
+-- Diagnostic command to inspect nameplate textures
+SLASH_NEXTTEXTURE1 = "/nexttexture"
+SlashCmdList["NEXTTEXTURE"] = function()
+    local plate = C_NamePlate.GetNamePlateForUnit("target")
+    if not plate then
+        print("No target nameplate found")
+        return
+    end
+    
+    print("=== Nameplate Texture Inspection ===")
+    local function inspectFrame(frame, name, depth)
+        depth = depth or 0
+        if depth > 3 then return end
+        local indent = string.rep("  ", depth)
+        
+        for i = 1, frame:GetNumRegions() do
+            local region = select(i, frame:GetRegions())
+            if region and region:IsObjectType("Texture") then
+                local texture = region:GetTexture()
+                local atlas = (region.GetAtlas and region:GetAtlas()) or nil
+                if texture or atlas then
+                    print(indent .. name .. " Texture " .. i .. ":")
+                    if atlas then
+                        print(indent .. "  Atlas: " .. tostring(atlas))
+                    end
+                    if texture then
+                        print(indent .. "  Path: " .. tostring(texture))
+                    end
+                end
+            end
+        end
+        
+        -- Check children
+        for i = 1, frame:GetNumChildren() do
+            local child = select(i, frame:GetChildren())
+            if child then
+                inspectFrame(child, name .. ".child" .. i, depth + 1)
+            end
+        end
+    end
+    
+    inspectFrame(plate, "Nameplate", 0)
+end
+
 local function releaseTexture(texture)
     if not texture then
         return
@@ -102,11 +146,34 @@ local function applyOutlineHighlight(self, healthBar, style, plate)
     createCorner("BOTTOMLEFT", "TOPRIGHT", offset, offset)
     createCorner("TOPRIGHT", "BOTTOMLEFT", -offset, -offset)
     createCorner("TOPLEFT", "BOTTOMRIGHT", offset, -offset)
+end
 
+local function applyBlizzardHighlight(self, healthBar, style, plate)
+    local color = style.color
+    local thickness = style.thickness or 2
+    local offset = (style.offset or 0) + 4  -- Remap: user's 0 = actual 4 (Blizzard's size)
+
+    -- Create single highlight texture using Blizzard's nameplate selection atlas
+    local texture = acquireTexture()
+    texture:SetParent(healthBar)
+    texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
+    
+    -- Scale it larger than the healthbar to create a border effect
+    texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
+    texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    
+    -- Use Blizzard's nameplate selection texture (has rounded corners)
+    if texture.SetAtlas then
+        pcall(function() texture:SetAtlas("UI-HUD-Nameplates-Selected", true) end)
+    end
+    
+    texture:Show()
+    table.insert(self.highlights, texture)
 end
 
 local highlightHandlers = {
     outline = applyOutlineHighlight,
+    blizzard = applyBlizzardHighlight,
 }
 
 local function determineStyle(result, currentGuid)
