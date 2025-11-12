@@ -68,6 +68,11 @@ end
 local tooltipScanner = CreateFrame("GameTooltip", addonName .. "TooltipScanner", UIParent, "GameTooltipTemplate")
 tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
 
+-- Disable tooltip data processing to avoid Blizzard PTR Feedback "secret value" errors
+if tooltipScanner.SetTooltipDataProcessingEnabled then
+    tooltipScanner:SetTooltipDataProcessingEnabled(false)
+end
+
 local QUEST_CACHE_SECONDS = 5 -- fallback TTL in case quest change events are missed
 local UNIT_CACHE_SECONDS = 1.25
 local UNIT_CACHE_PENDING_OBJECTIVE_SECONDS = 0.1
@@ -272,13 +277,7 @@ local function parseTooltip(unit)
     local uniqueLines = {}
 
     tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
-    
-    -- Wrap SetUnit in pcall to handle Blizzard PTR Feedback addon "secret value" errors
-    local success = pcall(function() tooltipScanner:SetUnit(unit) end)
-    if not success then
-        tooltipScanner:Hide()
-        return info
-    end
+    tooltipScanner:SetUnit(unit)
 
     local lineCount = tooltipScanner:NumLines() or 0
     for index = 2, lineCount do

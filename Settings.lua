@@ -604,17 +604,17 @@ local function bindHighlightRow(option, row)
                 UIDropDownMenu_SetText(row.dropdown, choice.label)
                 
                 -- Enable/disable thickness slider based on style
-                local isBlizzard = choice.value == "blizzard"
-                if isBlizzard then
-                    row.thickness:Disable()
-                    row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
-                    row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
-                    row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
-                else
+                local usesThickness = (choice.value ~= "blizzard" and choice.value ~= "glow")
+                if usesThickness then
                     row.thickness:Enable()
                     row.thickness.Text:SetTextColor(1, 1, 1)
                     row.thickness.Low:SetTextColor(1, 1, 1)
                     row.thickness.High:SetTextColor(1, 1, 1)
+                else
+                    row.thickness:Disable()
+                    row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
+                    row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
+                    row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
                 end
                 
                 accentuate()
@@ -679,17 +679,17 @@ local function refreshHighlightRow(option, row)
     UIDropDownMenu_SetText(row.dropdown, styleLabelFor(styleValue))
     
     -- Enable/disable thickness slider based on style
-    local isBlizzard = styleValue == "blizzard"
-    if isBlizzard then
-        row.thickness:Disable()
-        row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
-        row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
-        row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
-    else
+    local usesThickness = (styleValue ~= "blizzard" and styleValue ~= "glow")
+    if usesThickness then
         row.thickness:Enable()
         row.thickness.Text:SetTextColor(1, 1, 1)
         row.thickness.Low:SetTextColor(1, 1, 1)
         row.thickness.High:SetTextColor(1, 1, 1)
+    else
+        row.thickness:Disable()
+        row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
+        row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
+        row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
     end
 end
 

@@ -185,24 +185,26 @@ local function applyGlowHighlight(self, healthBar, style, plate)
     top:SetPoint("BOTTOMLEFT", healthBar, "TOPLEFT", -offset, offset)
     top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
     top:SetHeight(16)
+    top:SetTexCoord(1, 0, 0, 1)  -- Flip horizontally
 
     local bottom = createGlowTexture(edgeAtlases.bottom, false)
     bottom:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", -offset, -offset)
     bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
     bottom:SetHeight(16)
+    bottom:SetTexCoord(1, 0, 0, 1)  -- Flip horizontally
 
-    -- Only show left/right edges if offset is greater than 1
-    if (style.offset or 0) > 1 then
-        local left = createGlowTexture(edgeAtlases.left, false)
-        left:SetPoint("TOPRIGHT", healthBar, "TOPLEFT", -offset, offset)
-        left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
-        left:SetWidth(16)
+    -- Always show left/right edges
+    local left = createGlowTexture(edgeAtlases.left, false)
+    left:SetPoint("TOPRIGHT", healthBar, "TOPLEFT", -offset, offset)
+    left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
+    left:SetWidth(16)
+    left:SetTexCoord(0, 1, 1, 0)  -- Flip vertically
 
-        local right = createGlowTexture(edgeAtlases.right, false)
-        right:SetPoint("TOPLEFT", healthBar, "TOPRIGHT", offset, offset)
-        right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
-        right:SetWidth(16)
-    end
+    local right = createGlowTexture(edgeAtlases.right, false)
+    right:SetPoint("TOPLEFT", healthBar, "TOPRIGHT", offset, offset)
+    right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    right:SetWidth(16)
+    right:SetTexCoord(0, 1, 1, 0)  -- Flip vertically
 
     -- Create corners with proper rotation via texcoords
     local cornerSize = 16
