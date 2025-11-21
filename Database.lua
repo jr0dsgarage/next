@@ -33,11 +33,6 @@ local DEFAULTS = {
     bonusObjectiveThickness = 3,
     bonusObjectiveOffset = 2,
     bonusObjectiveStyle = "outline",
-    mythicObjectiveEnabled = true,
-    mythicObjectiveColor = { r = 0.58, g = 0.23, b = 0.86, a = 0.9 },
-    mythicObjectiveThickness = 3,
-    mythicObjectiveOffset = 2,
-    mythicObjectiveStyle = "outline",
 }
 
 local MIGRATION_MAP = {

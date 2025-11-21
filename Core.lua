@@ -11,6 +11,11 @@ local sanitizeCommand = addon.SanitizeCommand
 function addon:UpdateHighlight()
     self:ClearHighlights()
 
+    local inInstance, instanceType = IsInInstance()
+    if inInstance then
+        return
+    end
+
     if not NextTargetDB.enabled then
         if NextTargetDB.debugMode then
             self:UpdateDebugFrame({})

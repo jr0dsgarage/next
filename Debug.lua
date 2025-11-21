@@ -303,9 +303,6 @@ local function resolveHighlightColor(info)
     if reason == "Quest Objective" and NextTargetDB.questObjectiveColor then
         return NextTargetDB.questObjectiveColor
     end
-    if reason == "Mythic Objective" and NextTargetDB.mythicObjectiveColor then
-        return NextTargetDB.mythicObjectiveColor
-    end
 
     if info.highlightStyle and info.highlightStyle.color then
         return info.highlightStyle.color
@@ -477,21 +474,6 @@ local function questLabelFor(info)
     end
     if info.hasSoftTarget then
         return "Quest Item"
-    end
-    if info.isMythicBoss then
-        if info.mythicBossName and info.mythicBossName ~= "" then
-            return string.format("Mythic Boss: %s", info.mythicBossName)
-        end
-        return "Mythic Boss"
-    end
-    if info.isMythicEnemyForces then
-        if info.mythicEnemyForcesTotal and info.mythicEnemyForcesTotal > 0 then
-            return string.format("Enemy Forces (%d/%d)", info.mythicEnemyForcesProgress or 0, info.mythicEnemyForcesTotal)
-        end
-        return "Enemy Forces"
-    end
-    if info.reason == "Mythic Objective" or info.isMythicObjective then
-        return "Mythic Objective"
     end
     return "n/a"
 end

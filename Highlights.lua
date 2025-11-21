@@ -284,14 +284,7 @@ local function determineStyle(result, currentGuid)
             mode = NextTargetDB.questObjectiveStyle or addon:GetDefault("questObjectiveStyle") or "outline",
             origin = "questObjective",
         }
-    elseif result.reason == "Mythic Objective" and NextTargetDB.mythicObjectiveEnabled then
-        baseStyle = {
-            color = NextTargetDB.mythicObjectiveColor,
-            thickness = NextTargetDB.mythicObjectiveThickness,
-            offset = NextTargetDB.mythicObjectiveOffset,
-            mode = NextTargetDB.mythicObjectiveStyle or addon:GetDefault("mythicObjectiveStyle") or "outline",
-            origin = "mythicObjective",
-        }
+
     end
 
     if not baseStyle then

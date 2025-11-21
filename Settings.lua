@@ -27,7 +27,7 @@ local highlightOptions = {
     { key = "questItem", label = "Quest Item Target" },
     { key = "worldQuest", label = "World Quest Objective Target" },
     { key = "bonusObjective", label = "Bonus Objective Target" },
-    { key = "mythicObjective", label = "Mythic+ Dungeon Target" },
+
 }
 
 local highlightStyleChoices = {

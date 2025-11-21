@@ -12,7 +12,6 @@ The target highlighter uses the in-game tooltip information about each enemy wit
   - Highlights nameplates for mobs relevant to your active quests:
     - Quest objectives
     - World quest targets
-    - Mythic+ Enemy Forces & Bosses
 - **Customizable Styles:**
   - Configure highlight color, thickness, and offset for each quest type.
   - Settings panel available in Interface > AddOns or via `/next config`.
