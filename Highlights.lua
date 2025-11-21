@@ -23,6 +23,11 @@ local function releaseTexture(texture)
     texture:ClearAllPoints()
     texture:SetParent(nil)
     texture:SetVertexColor(1, 1, 1, 1)
+    texture:SetBlendMode("BLEND")
+    texture:SetTexCoord(0, 1, 0, 1)
+    texture:SetDrawLayer("OVERLAY")
+    texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+    texture:SetSize(0, 0)
     table.insert(addon.texturePool, texture)
 end
 
@@ -221,26 +226,22 @@ local function applyGlowHighlight(self, healthBar, style, plate)
 
     -- Create corners with proper rotation via texcoords
     local cornerSize = 16
-    
-    local topLeft = createGlowTexture(cornerAtlas, true)
-    topLeft:SetSize(cornerSize, cornerSize)
-    topLeft:SetPoint("BOTTOMRIGHT", healthBar, "TOPLEFT", -offset, offset)
-    topLeft:SetTexCoord(0, 1, 0, 1)  -- Flipped horizontally
+    local cornerConfigs = {
+        { point = "BOTTOMRIGHT", relPoint = "TOPLEFT", x = -offset, y = offset, hFlip = false, vFlip = false },      -- TopLeft
+        { point = "BOTTOMLEFT", relPoint = "TOPRIGHT", x = offset, y = offset, hFlip = true, vFlip = false },      -- TopRight
+        { point = "TOPRIGHT", relPoint = "BOTTOMLEFT", x = -offset, y = -offset, hFlip = false, vFlip = true },      -- BottomLeft
+        { point = "TOPLEFT", relPoint = "BOTTOMRIGHT", x = offset, y = -offset, hFlip = true, vFlip = true },      -- BottomRight
+    }
 
-    local topRight = createGlowTexture(cornerAtlas, true)
-    topRight:SetSize(cornerSize, cornerSize)
-    topRight:SetPoint("BOTTOMLEFT", healthBar, "TOPRIGHT", offset, offset)
-    topRight:SetTexCoord(1, 0, 0, 1)
-
-    local bottomLeft = createGlowTexture(cornerAtlas, true)
-    bottomLeft:SetSize(cornerSize, cornerSize)
-    bottomLeft:SetPoint("TOPRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
-    bottomLeft:SetTexCoord(0, 1, 1, 0)
-
-    local bottomRight = createGlowTexture(cornerAtlas, true)
-    bottomRight:SetSize(cornerSize, cornerSize)
-    bottomRight:SetPoint("TOPLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
-    bottomRight:SetTexCoord(1, 0, 1, 0)
+    for _, config in ipairs(cornerConfigs) do
+        local tex = createGlowTexture(cornerAtlas, true)
+        tex:SetSize(cornerSize, cornerSize)
+        tex:SetPoint(config.point, healthBar, config.relPoint, config.x, config.y)
+        
+        local minX, maxX = config.hFlip and 1 or 0, config.hFlip and 0 or 1
+        local minY, maxY = config.vFlip and 1 or 0, config.vFlip and 0 or 1
+        tex:SetTexCoord(minX, maxX, minY, maxY)
+    end
 end
 
 local highlightHandlers = {
@@ -252,39 +253,25 @@ local highlightHandlers = {
 local function determineStyle(result, currentGuid)
     local baseStyle
 
-    if result.reason == "Has Quest Item" and NextTargetDB.questItemEnabled then
-        baseStyle = {
-            color = NextTargetDB.questItemColor,
-            thickness = NextTargetDB.questItemThickness,
-            offset = NextTargetDB.questItemOffset,
-            mode = NextTargetDB.questItemStyle or addon:GetDefault("questItemStyle") or "outline",
-            origin = "questItem",
-        }
-    elseif result.reason == "Bonus Objective" and NextTargetDB.bonusObjectiveEnabled then
-        baseStyle = {
-            color = NextTargetDB.bonusObjectiveColor,
-            thickness = NextTargetDB.bonusObjectiveThickness,
-            offset = NextTargetDB.bonusObjectiveOffset,
-            mode = NextTargetDB.bonusObjectiveStyle or addon:GetDefault("bonusObjectiveStyle") or "outline",
-            origin = "bonusObjective",
-        }
-    elseif result.reason == "World Quest" and NextTargetDB.worldQuestEnabled then
-        baseStyle = {
-            color = NextTargetDB.worldQuestColor,
-            thickness = NextTargetDB.worldQuestThickness,
-            offset = NextTargetDB.worldQuestOffset,
-            mode = NextTargetDB.worldQuestStyle or addon:GetDefault("worldQuestStyle") or "outline",
-            origin = "worldQuest",
-        }
-    elseif result.reason == "Quest Objective" and NextTargetDB.questObjectiveEnabled then
-        baseStyle = {
-            color = NextTargetDB.questObjectiveColor,
-            thickness = NextTargetDB.questObjectiveThickness,
-            offset = NextTargetDB.questObjectiveOffset,
-            mode = NextTargetDB.questObjectiveStyle or addon:GetDefault("questObjectiveStyle") or "outline",
-            origin = "questObjective",
-        }
+    local configMap = {
+        ["Has Quest Item"] = { prefix = "questItem" },
+        ["Bonus Objective"] = { prefix = "bonusObjective" },
+        ["World Quest"] = { prefix = "worldQuest" },
+        ["Quest Objective"] = { prefix = "questObjective" },
+    }
 
+    local config = configMap[result.reason]
+    if config then
+        local prefix = config.prefix
+        if NextTargetDB[prefix .. "Enabled"] then
+             baseStyle = {
+                color = NextTargetDB[prefix .. "Color"],
+                thickness = NextTargetDB[prefix .. "Thickness"],
+                offset = NextTargetDB[prefix .. "Offset"],
+                mode = NextTargetDB[prefix .. "Style"] or addon:GetDefault(prefix .. "Style") or "outline",
+                origin = prefix,
+            }
+        end
     end
 
     if not baseStyle then

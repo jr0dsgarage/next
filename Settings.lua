@@ -247,25 +247,22 @@ local function applyGlowPreview(style)
 
     -- Create corners with proper rotation via texcoords
     local cornerSize = 16
-    
-    local topLeft = createGlowTexture(cornerAtlas, true)
-    topLeft:SetSize(cornerSize, cornerSize)
-    topLeft:SetPoint("BOTTOMRIGHT", healthBar, "TOPLEFT", -offset, offset)
+    local cornerConfigs = {
+        { point = "BOTTOMRIGHT", relPoint = "TOPLEFT", x = -offset, y = offset, hFlip = false, vFlip = false },      -- TopLeft
+        { point = "BOTTOMLEFT", relPoint = "TOPRIGHT", x = offset, y = offset, hFlip = true, vFlip = false },      -- TopRight
+        { point = "TOPRIGHT", relPoint = "BOTTOMLEFT", x = -offset, y = -offset, hFlip = false, vFlip = true },      -- BottomLeft
+        { point = "TOPLEFT", relPoint = "BOTTOMRIGHT", x = offset, y = -offset, hFlip = true, vFlip = true },      -- BottomRight
+    }
 
-    local topRight = createGlowTexture(cornerAtlas, true)
-    topRight:SetSize(cornerSize, cornerSize)
-    topRight:SetPoint("BOTTOMLEFT", healthBar, "TOPRIGHT", offset, offset)
-    topRight:SetTexCoord(1, 0, 0, 1)
-
-    local bottomLeft = createGlowTexture(cornerAtlas, true)
-    bottomLeft:SetSize(cornerSize, cornerSize)
-    bottomLeft:SetPoint("TOPRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
-    bottomLeft:SetTexCoord(0, 1, 1, 0)
-
-    local bottomRight = createGlowTexture(cornerAtlas, true)
-    bottomRight:SetSize(cornerSize, cornerSize)
-    bottomRight:SetPoint("TOPLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
-    bottomRight:SetTexCoord(1, 0, 1, 0)
+    for _, config in ipairs(cornerConfigs) do
+        local tex = createGlowTexture(cornerAtlas, true)
+        tex:SetSize(cornerSize, cornerSize)
+        tex:SetPoint(config.point, healthBar, config.relPoint, config.x, config.y)
+        
+        local minX, maxX = config.hFlip and 1 or 0, config.hFlip and 0 or 1
+        local minY, maxY = config.vFlip and 1 or 0, config.vFlip and 0 or 1
+        tex:SetTexCoord(minX, maxX, minY, maxY)
+    end
 end
 
 local previewHandlers = {

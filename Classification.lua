@@ -85,12 +85,12 @@ local function resetCaches()
     questCache.timestamp = 0
     if wipeTable then
         wipeTable(questCache.entries)
+        wipeTable(tooltipTextCache)
     else
         questCache.entries = {}
+        tooltipTextCache = {}
     end
     unitCache = {}
-
-    tooltipTextCache = {}
 end
 
 
