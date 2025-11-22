@@ -1,5 +1,7 @@
 # next - A Target highlighter
+
 <img width="128" height="128" alt="next" src="https://github.com/user-attachments/assets/116e95f1-68e0-4c6a-8358-f90a65dce95d" align="left"/>
+
 next is a World of Warcraft addon that highlights potential enemy targets, helping the player decide which enemy they should target next.
 <br>
 <br>
@@ -8,12 +10,20 @@ The target highlighter uses the in-game tooltip information about each enemy wit
 
 ## Features
 
-- **Quest Highlighting:**
-  - Highlights nameplates for mobs relevant to your active quests:
-    - Quest objectives
-    - World quest targets
+- **Smart Quest Highlighting:**
+  - Automatically highlights nameplates for mobs relevant to your active tasks:
+    - **Quest Objectives**: Standard kill/collect quests.
+    - **Quest Items**: Mobs that drop quest items (even if not a direct kill objective).
+    - **World Quests**: Targets for active world quests.
+    - **Bonus Objectives**: Targets for area bonus objectives.
+- **Current Target Indicator:**
+  - Distinct highlight for your currently selected target.
 - **Customizable Styles:**
-  - Configure highlight color, thickness, and offset for each quest type.
+  - Choose from multiple visual styles for each highlight type:
+    - **Blizzard**: Uses the native Blizzard selection texture (clean & integrated).
+    - **Outline**: Draws a colored border around the health bar.
+    - **Glow**: Adds a soft glow effect around the health bar.
+  - Configure **Color**, **Thickness**, and **Offset** for each type independently.
   - Settings panel available in Interface > AddOns or via `/next config`.
 
 ## Examples
