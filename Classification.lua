@@ -65,14 +65,6 @@ local function normalizeLines(lines)
     return normalized
 end
 
-local tooltipScanner = CreateFrame("GameTooltip", addonName .. "TooltipScanner", UIParent, "GameTooltipTemplate")
-tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
-
--- Disable tooltip data processing to avoid Blizzard PTR Feedback "secret value" errors
-if tooltipScanner.SetTooltipDataProcessingEnabled then
-    tooltipScanner:SetTooltipDataProcessingEnabled(false)
-end
-
 local QUEST_CACHE_SECONDS = 5 -- fallback TTL in case quest change events are missed
 local UNIT_CACHE_SECONDS = 1.25
 local UNIT_CACHE_PENDING_OBJECTIVE_SECONDS = 0.1
@@ -133,52 +125,49 @@ local function parseTooltip(unit)
 
     local uniqueLines = {}
 
-    tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
-    tooltipScanner:SetUnit(unit)
-
-    local lineCount = tooltipScanner:NumLines() or 0
-    for index = 2, lineCount do
-        local line = _G[tooltipScanner:GetName() .. "TextLeft" .. index]
-        if line then
-            -- Wrap GetText in pcall to handle "secret value" errors in Midnight beta
-            local textSuccess, text = pcall(function() return line:GetText() end)
-            if textSuccess and text and text ~= "" then
-                local sanitized = getCachedTooltipText(text)
-                if sanitized and sanitized ~= "" then
-                    if not uniqueLines[sanitized] then
-                        uniqueLines[sanitized] = true
-                        info.lines[#info.lines + 1] = sanitized
-                    end
-
-                    local lower = strlower(sanitized)
-                    local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
-                    if isEnemyForcesLine then
-                        info.hasEnemyForcesLine = true
-                    end
-
-                    local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
-                    if current and total and not isEnemyForcesLine then
-                        local currentNum = tonumber(current)
-                        local totalNum = tonumber(total)
-                        if currentNum and totalNum then
-                            if currentNum >= totalNum then
-                            info.hasCompletedObjective = true
-                        else
-                            info.hasQuestObjective = true
+    if C_TooltipInfo and C_TooltipInfo.GetUnit then
+        local data = C_TooltipInfo.GetUnit(unit)
+        if data then
+            for _, line in ipairs(data.lines) do
+                local text = line.leftText
+                if text and text ~= "" then
+                    local sanitized = getCachedTooltipText(text)
+                    if sanitized and sanitized ~= "" then
+                        if not uniqueLines[sanitized] then
+                            uniqueLines[sanitized] = true
+                            info.lines[#info.lines + 1] = sanitized
                         end
-                    end
-                end
 
-                    local percentValue = sanitized:match("(%d?%d?%d)%%")
-                    if percentValue then
-                        local isThreatLine = lower:find("threat", 1, true) ~= nil
-                        if not isThreatLine and not isEnemyForcesLine then
-                            local percentNum = tonumber(percentValue)
-                            if percentNum then
-                                if percentNum >= 100 then
+                        local lower = strlower(sanitized)
+                        local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
+                        if isEnemyForcesLine then
+                            info.hasEnemyForcesLine = true
+                        end
+
+                        local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
+                        if current and total and not isEnemyForcesLine then
+                            local currentNum = tonumber(current)
+                            local totalNum = tonumber(total)
+                            if currentNum and totalNum then
+                                if currentNum >= totalNum then
                                     info.hasCompletedObjective = true
                                 else
                                     info.hasQuestObjective = true
+                                end
+                            end
+                        end
+
+                        local percentValue = sanitized:match("(%d?%d?%d)%%")
+                        if percentValue then
+                            local isThreatLine = lower:find("threat", 1, true) ~= nil
+                            if not isThreatLine and not isEnemyForcesLine then
+                                local percentNum = tonumber(percentValue)
+                                if percentNum then
+                                    if percentNum >= 100 then
+                                        info.hasCompletedObjective = true
+                                    else
+                                        info.hasQuestObjective = true
+                                    end
                                 end
                             end
                         end
@@ -189,8 +178,6 @@ local function parseTooltip(unit)
     end
 
     info.normalizedLines = normalizeLines(info.lines)
-
-    tooltipScanner:Hide()
     return info
 end
 

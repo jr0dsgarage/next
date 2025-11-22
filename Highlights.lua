@@ -36,6 +36,11 @@ local function resolveHealthBar(plate)
         return nil
     end
 
+    -- Check cache first
+    if plate.next_healthBar and plate.next_healthBar.IsVisible and plate.next_healthBar:IsVisible() then
+        return plate.next_healthBar
+    end
+
     -- Try various known healthbar locations in order of likelihood
     local healthBarPaths = {
         -- Midnight beta / TWW structures
@@ -55,6 +60,8 @@ local function resolveHealthBar(plate)
             -- Verify it's actually a frame before returning
             local isFrame = pcall(function() return healthBar:GetObjectType() end)
             if isFrame then
+                -- Cache the result on the plate frame
+                plate.next_healthBar = healthBar
                 return healthBar
             end
         end
