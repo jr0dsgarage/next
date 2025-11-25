@@ -7,6 +7,7 @@ local strlower = string.lower
 
 local questUtilsIsWorldQuest = rawget(_G, "QuestUtils_IsQuestWorldQuest")
 local questUtilsIsBonusObjective = rawget(_G, "QuestUtils_IsQuestBonusObjective")
+local getQuestLogSpecialItemInfo = rawget(_G, "GetQuestLogSpecialItemInfo")
 
 local function trim(value)
     if not value then
@@ -419,6 +420,7 @@ local function refreshQuestCache()
             isWorldQuest = false,
             isBonusObjective = false,
             normalizedQuestName = nil,
+            hasQuestItem = seed.hasQuestItem,
         }
 
         entry.isWorldQuest = determineWorldQuestFlag(questID, seed.isWorldQuest)
@@ -482,10 +484,20 @@ local function refreshQuestCache()
         local info = C_QuestLog.GetInfo(index)
         if info and not info.isHeader and info.questID then
             local questID = info.questID
+
+            local hasQuestItem = false
+            if getQuestLogSpecialItemInfo then
+                local itemID = getQuestLogSpecialItemInfo(index)
+                if itemID then
+                    hasQuestItem = true
+                end
+            end
+
             local entry = buildQuestEntry(questID, {
                 questInfo = info,
                 isBonusObjective = info and info.isBonusObjective,
                 isWorldQuest = info and info.isWorldQuest,
+                hasQuestItem = hasQuestItem,
             })
             addEntry(entry)
         end
@@ -639,6 +651,7 @@ local function classifyUnit(unitData)
     local questID = questMatch and questMatch.questID or nil
     local isWorldQuest = questMatch and questMatch.isWorldQuest or false
     local isBonusObjective = questMatch and questMatch.isBonusObjective or false
+    local hasQuestItem = questMatch and questMatch.hasQuestItem or false
     local questType = nil
     if questMatch then
         if isBonusObjective then
@@ -663,7 +676,7 @@ local function classifyUnit(unitData)
     local isMythicBoss = false
     local isMythicEnemyForces = false
     local mythicBossName
-    if hasSoftTarget then
+    if hasSoftTarget or hasQuestItem then
         reason = "Has Quest Item"
     elseif tooltipInfo.hasQuestObjective then
         if isBonusObjective then
