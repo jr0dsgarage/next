@@ -3,6 +3,256 @@ local addonName, addon = ...
 
 local floor = math.floor
 
+-- Diagnostic command to inspect nameplate textures
+SLASH_NEXTTEXTURE1 = "/nexttexture"
+SlashCmdList["NEXTTEXTURE"] = function()
+    local plate = C_NamePlate.GetNamePlateForUnit("target")
+    if not plate then
+        print("No target nameplate found")
+        return
+    end
+    
+    print("=== Nameplate Texture Inspection ===")
+    local function inspectFrame(frame, name, depth)
+        depth = depth or 0
+        if depth > 3 then return end
+        local indent = string.rep("  ", depth)
+        
+        for i = 1, frame:GetNumRegions() do
+            local region = select(i, frame:GetRegions())
+            if region and region:IsObjectType("Texture") then
+                local texture = region:GetTexture()
+                local atlas = (region.GetAtlas and region:GetAtlas()) or nil
+                if texture or atlas then
+                    print(indent .. name .. " Texture " .. i .. ":")
+                    if atlas then
+                        print(indent .. "  Atlas: " .. tostring(atlas))
+                    end
+                    if texture then
+                        print(indent .. "  Path: " .. tostring(texture))
+                    end
+                end
+            end
+        end
+        
+        -- Check children
+        for i = 1, frame:GetNumChildren() do
+            local child = select(i, frame:GetChildren())
+            if child then
+                inspectFrame(child, name .. ".child" .. i, depth + 1)
+            end
+        end
+    end
+    
+    inspectFrame(plate, "Nameplate", 0)
+end
+
+-- Diagnostic command to inspect mouseover frame textures
+SLASH_NEXTINSPECT1 = "/nextinspect"
+SlashCmdList["NEXTINSPECT"] = function()
+    local frame = GetMouseFoci and GetMouseFoci()[1] or nil
+    if not frame then
+        print("No frame under mouse")
+        return
+    end
+    
+    print("=== Frame Texture Inspection ===")
+    print("Frame name: " .. (frame:GetName() or "Anonymous"))
+    print("Frame type: " .. (frame:GetObjectType() or "Unknown"))
+    
+    local function inspectFrame(f, name, depth)
+        depth = depth or 0
+        if depth > 4 then return end
+        local indent = string.rep("  ", depth)
+        
+        -- Check textures
+        for i = 1, f:GetNumRegions() do
+            local region = select(i, f:GetRegions())
+            if region and region:IsObjectType("Texture") then
+                local texture = region:GetTexture()
+                local atlas = (region.GetAtlas and region:GetAtlas()) or nil
+                if texture or atlas then
+                    print(indent .. name .. " Texture " .. i .. ":")
+                    if atlas then
+                        print(indent .. "  Atlas: " .. tostring(atlas))
+                    end
+                    if texture then
+                        print(indent .. "  Path: " .. tostring(texture))
+                    end
+                    -- Check if it's animating
+                    if region.GetAnimationGroups then
+                        local numAnims = (region.GetNumAnimationGroups and region:GetNumAnimationGroups()) or 0
+                        if numAnims > 0 then
+                            print(indent .. "  Animations: " .. numAnims .. " groups")
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Check children
+        for i = 1, f:GetNumChildren() do
+            local child = select(i, f:GetChildren())
+            if child then
+                inspectFrame(child, name .. ".child" .. i, depth + 1)
+            end
+        end
+    end
+    
+    inspectFrame(frame, "Frame", 0)
+    
+    -- Also check parent for context
+    local parent = frame:GetParent()
+    if parent then
+        print("\n=== Parent Frame ===")
+        print("Parent name: " .. (parent:GetName() or "Anonymous"))
+        inspectFrame(parent, "Parent", 0)
+    end
+end
+
+-- Diagnostic command to inspect nameplate structure
+SLASH_NEXTSTRUCTURE1 = "/nextstructure"
+SlashCmdList["NEXTSTRUCTURE"] = function()
+    local plate = C_NamePlate.GetNamePlateForUnit("target")
+    if not plate then
+        print("No target nameplate found")
+        return
+    end
+    
+    print("=== Nameplate Structure Analysis ===")
+    
+    local function printValue(name, value, indent)
+        indent = indent or ""
+        local valueType = type(value)
+        if valueType == "table" or valueType == "userdata" then
+            local objType = (value.GetObjectType and pcall(value.GetObjectType, value)) and value:GetObjectType() or "table"
+            print(indent .. name .. " = <" .. objType .. ">")
+        else
+            print(indent .. name .. " = " .. tostring(value))
+        end
+    end
+    
+    local function inspectStructure(obj, name, depth, visited)
+        depth = depth or 0
+        visited = visited or {}
+        
+        if depth > 3 then return end
+        if visited[obj] then return end
+        visited[obj] = true
+        
+        local indent = string.rep("  ", depth)
+        
+        -- Try to get common properties
+        local properties = {
+            "unit", "namePlateUnitToken", "displayedUnit",
+            "healthBar", "Health", "HealthBar",
+            "UnitFrame", "healthBars", "HealthBarsContainer"
+        }
+        
+        for _, prop in ipairs(properties) do
+            if type(obj) == "table" or (type(obj) == "userdata" and obj[prop] ~= nil) then
+                local success, value = pcall(function() return obj[prop] end)
+                if success and value ~= nil then
+                    printValue(prop, value, indent)
+                    if type(value) == "table" or type(value) == "userdata" then
+                        inspectStructure(value, prop, depth + 1, visited)
+                    end
+                end
+            end
+        end
+    end
+    
+    inspectStructure(plate, "Nameplate", 0)
+    
+    -- Try to resolve healthbar
+    print("\n=== Healthbar Resolution Test ===")
+    if plate.UnitFrame and plate.UnitFrame.healthBar then
+        print("✓ Found: plate.UnitFrame.healthBar")
+    end
+    if plate.UnitFrame and plate.UnitFrame.healthBars and plate.UnitFrame.healthBars.healthBar then
+        print("✓ Found: plate.UnitFrame.healthBars.healthBar")
+    end
+    if plate.UnitFrame and plate.UnitFrame.HealthBarsContainer and plate.UnitFrame.HealthBarsContainer.healthBar then
+        print("✓ Found: plate.UnitFrame.HealthBarsContainer.healthBar")
+    end
+    if plate.healthBar then
+        print("✓ Found: plate.healthBar")
+    end
+    if plate.UnitFrame and plate.UnitFrame.Health then
+        print("✓ Found: plate.UnitFrame.Health")
+    end
+    if plate.UnitFrame and plate.UnitFrame.HealthBar then
+        print("✓ Found: plate.UnitFrame.HealthBar")
+    end
+end
+
+-- Diagnostic command to find quest item icon (SoftTargetFrame)
+SLASH_NEXTSOFTTARGET1 = "/nextsofttarget"
+SlashCmdList["NEXTSOFTTARGET"] = function()
+    local plate = C_NamePlate.GetNamePlateForUnit("target")
+    if not plate then
+        print("No target nameplate found")
+        return
+    end
+    
+    print("=== Quest Item Icon (SoftTargetFrame) Search ===")
+    
+    local function searchForSoftTarget(obj, path, depth, visited)
+        depth = depth or 0
+        visited = visited or {}
+        
+        if depth > 5 then return end
+        if visited[obj] then return end
+        visited[obj] = true
+        
+        -- Check common soft target / quest item names
+        local softTargetNames = {
+            "SoftTargetFrame", "softTargetFrame", "QuestItemIcon",
+            "questItemIcon", "QuestIcon", "questIcon"
+        }
+        
+        for _, name in ipairs(softTargetNames) do
+            if type(obj) == "table" or type(obj) == "userdata" then
+                local success, value = pcall(function() return obj[name] end)
+                if success and value ~= nil then
+                    local isFrame = pcall(function() return value:GetObjectType() end)
+                    if isFrame then
+                        local shown = value.IsShown and value:IsShown()
+                        print(string.format("✓ Found: %s.%s <%s> Visible: %s", path, name, value:GetObjectType(), tostring(shown)))
+                        
+                        -- Check for Icon child
+                        if value.Icon then
+                            local iconShown = value.Icon.IsShown and value.Icon:IsShown()
+                            print(string.format("  Has Icon: Visible: %s", tostring(iconShown)))
+                        end
+                    else
+                        print(string.format("  Found: %s.%s = %s", path, name, tostring(value)))
+                    end
+                end
+            end
+        end
+        
+        -- Recursively search children
+        if type(obj) == "table" or type(obj) == "userdata" then
+            local success, numChildren = pcall(function() return obj:GetNumChildren() end)
+            if success and numChildren then
+                for i = 1, numChildren do
+                    local child = select(i, obj:GetChildren())
+                    if child then
+                        local childName = child.GetName and child:GetName() or ("child" .. i)
+                        searchForSoftTarget(child, path .. "." .. childName, depth + 1, visited)
+                    end
+                end
+            end
+        end
+    end
+    
+    searchForSoftTarget(plate, "plate", 0)
+    if plate.UnitFrame then
+        searchForSoftTarget(plate.UnitFrame, "plate.UnitFrame", 0)
+    end
+end
+
 local function clamp01(value)
     if not value then
         return 0
@@ -52,9 +302,6 @@ local function resolveHighlightColor(info)
     end
     if reason == "Quest Objective" and NextTargetDB.questObjectiveColor then
         return NextTargetDB.questObjectiveColor
-    end
-    if reason == "Mythic Objective" and NextTargetDB.mythicObjectiveColor then
-        return NextTargetDB.mythicObjectiveColor
     end
 
     if info.highlightStyle and info.highlightStyle.color then
@@ -227,21 +474,6 @@ local function questLabelFor(info)
     end
     if info.hasSoftTarget then
         return "Quest Item"
-    end
-    if info.isMythicBoss then
-        if info.mythicBossName and info.mythicBossName ~= "" then
-            return string.format("Mythic Boss: %s", info.mythicBossName)
-        end
-        return "Mythic Boss"
-    end
-    if info.isMythicEnemyForces then
-        if info.mythicEnemyForcesTotal and info.mythicEnemyForcesTotal > 0 then
-            return string.format("Enemy Forces (%d/%d)", info.mythicEnemyForcesProgress or 0, info.mythicEnemyForcesTotal)
-        end
-        return "Enemy Forces"
-    end
-    if info.reason == "Mythic Objective" or info.isMythicObjective then
-        return "Mythic Objective"
     end
     return "n/a"
 end

@@ -9,6 +9,14 @@ addon.pendingUpdate = addon.pendingUpdate or false
 local sanitizeCommand = addon.SanitizeCommand
 
 function addon:UpdateHighlight()
+    local inInstance, instanceType = IsInInstance()
+    if inInstance then
+        if #self.highlights > 0 then
+            self:ClearHighlights()
+        end
+        return
+    end
+
     self:ClearHighlights()
 
     if not NextTargetDB.enabled then

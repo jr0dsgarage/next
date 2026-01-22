@@ -23,15 +23,17 @@ local ui = {
 
 local highlightOptions = {
     { key = "currentTarget", label = "Current Target" },
-    { key = "questObjective", label = "Quest Objectives" },
-    { key = "questItem", label = "Quest Items" },
-    { key = "worldQuest", label = "World Quests" },
-    { key = "bonusObjective", label = "Bonus Objectives" },
-    { key = "mythicObjective", label = "Mythic Dungeon Objectives" },
+    { key = "questObjective", label = "Quest Objective Target" },
+    { key = "questItem", label = "Quest Item Target" },
+    { key = "worldQuest", label = "World Quest Objective Target" },
+    { key = "bonusObjective", label = "Bonus Objective Target" },
+
 }
 
 local highlightStyleChoices = {
     { value = "outline", label = "Outline" },
+    { value = "blizzard", label = "Blizzard" },
+    { value = "glow", label = "Glow" },
 }
 
 local function styleLabelFor(value)
@@ -137,8 +139,136 @@ local function applyOutlinePreview(style)
     addCorner("TOPLEFT", "BOTTOMRIGHT", offset, -offset)
 end
 
+local function applyBlizzardPreview(style)
+    if not ui.preview or not ui.preview.healthBar then
+        return
+    end
+
+    ensurePreviewHighlights()
+
+    local healthBar = ui.preview.healthBar
+    local color = style.color or {}
+    local r = color.r or 1
+    local g = color.g or 1
+    local b = color.b or 1
+    local a = color.a or 1
+    if not style.enabled then
+        a = a * 0.35
+    end
+
+    local offset = (style.offset or 0) + 4  -- Remap: user's 0 = actual 4 (Blizzard's size)
+
+    local texture = healthBar:CreateTexture(nil, "OVERLAY")
+    texture:SetVertexColor(r, g, b, a)
+    texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
+    texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    
+    if texture.SetAtlas then
+        pcall(function() texture:SetAtlas("UI-HUD-Nameplates-Selected", true) end)
+    end
+    
+    texture:Show()
+    ui.preview.highlights[#ui.preview.highlights + 1] = texture
+end
+
+local function applyGlowPreview(style)
+    if not ui.preview or not ui.preview.healthBar then
+        return
+    end
+
+    ensurePreviewHighlights()
+
+    local healthBar = ui.preview.healthBar
+    local color = style.color or {}
+    local r = color.r or 1
+    local g = color.g or 1
+    local b = color.b or 1
+    local a = color.a or 1
+    if not style.enabled then
+        a = a * 0.35
+    end
+
+    local thickness = style.thickness or 2
+    local offset = (style.offset or 0) - 4  -- Reduce offset so glow sits tighter to healthbar
+
+    local function createGlowTexture(atlasName, useAtlasSize)
+        local texture = healthBar:CreateTexture(nil, "OVERLAY", nil, 1)
+        
+        if texture.SetAtlas then
+            local success = pcall(function() 
+                texture:SetAtlas(atlasName, useAtlasSize or false)
+            end)
+            if not success then
+                texture:SetTexture(WHITE_TEXTURE)
+            end
+        else
+            texture:SetTexture(WHITE_TEXTURE)
+        end
+        
+        texture:SetVertexColor(r, g, b, a)
+        texture:SetBlendMode("ADD")
+        texture:Show()
+        ui.preview.highlights[#ui.preview.highlights + 1] = texture
+        return texture
+    end
+
+    local edgeAtlases = {
+        top = "_ButtonGreenGlow-NineSlice-EdgeTop",
+        bottom = "_ButtonGreenGlow-NineSlice-EdgeBottom",
+        left = "!ButtonGreenGlow-NineSlice-EdgeLeft",
+        right = "!ButtonGreenGlow-NineSlice-EdgeRight",
+    }
+    
+    local cornerAtlas = "ButtonGreenGlow-NineSlice-Corner"
+
+    -- Create edges
+    local top = createGlowTexture(edgeAtlases.top, false)
+    top:SetPoint("BOTTOMLEFT", healthBar, "TOPLEFT", -offset, offset)
+    top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
+    top:SetHeight(16)
+
+    local bottom = createGlowTexture(edgeAtlases.bottom, false)
+    bottom:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", -offset, -offset)
+    bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
+    bottom:SetHeight(16)
+
+    -- Only show left/right edges if offset is greater than 1
+    if (style.offset or 0) > 1 then
+        local left = createGlowTexture(edgeAtlases.left, false)
+        left:SetPoint("TOPRIGHT", healthBar, "TOPLEFT", -offset, offset)
+        left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
+        left:SetWidth(16)
+
+        local right = createGlowTexture(edgeAtlases.right, false)
+        right:SetPoint("TOPLEFT", healthBar, "TOPRIGHT", offset, offset)
+        right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
+        right:SetWidth(16)
+    end
+
+    -- Create corners with proper rotation via texcoords
+    local cornerSize = 16
+    local cornerConfigs = {
+        { point = "BOTTOMRIGHT", relPoint = "TOPLEFT", x = -offset, y = offset, hFlip = false, vFlip = false },      -- TopLeft
+        { point = "BOTTOMLEFT", relPoint = "TOPRIGHT", x = offset, y = offset, hFlip = true, vFlip = false },      -- TopRight
+        { point = "TOPRIGHT", relPoint = "BOTTOMLEFT", x = -offset, y = -offset, hFlip = false, vFlip = true },      -- BottomLeft
+        { point = "TOPLEFT", relPoint = "BOTTOMRIGHT", x = offset, y = -offset, hFlip = true, vFlip = true },      -- BottomRight
+    }
+
+    for _, config in ipairs(cornerConfigs) do
+        local tex = createGlowTexture(cornerAtlas, true)
+        tex:SetSize(cornerSize, cornerSize)
+        tex:SetPoint(config.point, healthBar, config.relPoint, config.x, config.y)
+        
+        local minX, maxX = config.hFlip and 1 or 0, config.hFlip and 0 or 1
+        local minY, maxY = config.vFlip and 1 or 0, config.vFlip and 0 or 1
+        tex:SetTexCoord(minX, maxX, minY, maxY)
+    end
+end
+
 local previewHandlers = {
     outline = applyOutlinePreview,
+    blizzard = applyBlizzardPreview,
+    glow = applyGlowPreview,
 }
 
 local function applyPreviewHighlight(style)
@@ -291,19 +421,24 @@ local function useColorPicker(color, onChanged)
 end
 
 local function createHighlightRow(anchor, option, index)
-    local rowOffset = -12 - (index - 1) * 56
+    local rowOffset = -12 - (index - 1) * 68  -- Increased spacing for two-line layout
 
+    -- Label on first line
     local label = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, rowOffset)
-    label:SetWidth(140)
+    label:SetWidth(600)
     label:SetJustifyH("LEFT")
     label:SetText(option.label)
 
+    -- All controls on second line, below the label
+    local controlY = rowOffset - 18
+
     local checkbox = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
-    checkbox:SetPoint("LEFT", label, "RIGHT", 4, 0)
+    checkbox:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, controlY)
+    checkbox.Text:SetText("")  -- Remove text, label is above
 
     local dropdown = CreateFrame("Frame", nil, content, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("LEFT", checkbox, "RIGHT", -6, -2)
+    dropdown:SetPoint("LEFT", checkbox, "RIGHT", -12, -2)
     UIDropDownMenu_SetWidth(dropdown, 120)
     UIDropDownMenu_JustifyText(dropdown, "LEFT")
 
@@ -322,7 +457,6 @@ local function createHighlightRow(anchor, option, index)
 
     local thickness = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
     thickness:SetPoint("LEFT", colorButton, "RIGHT", 12, 0)
-    thickness:SetPoint("CENTER", label, "CENTER", 0, -2)
     thickness:SetMinMaxValues(1, 5)
     thickness:SetValueStep(1)
     thickness:SetObeyStepOnDrag(true)
@@ -335,7 +469,6 @@ local function createHighlightRow(anchor, option, index)
 
     local offset = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
     offset:SetPoint("LEFT", thickness, "RIGHT", 12, 0)
-    offset:SetPoint("CENTER", thickness, "CENTER", 0, 0)
     offset:SetMinMaxValues(0, 5)
     offset:SetValueStep(1)
     offset:SetObeyStepOnDrag(true)
@@ -466,6 +599,21 @@ local function bindHighlightRow(option, row)
                 NextTargetDB[styleKey] = choice.value
                 UIDropDownMenu_SetSelectedValue(row.dropdown, choice.value)
                 UIDropDownMenu_SetText(row.dropdown, choice.label)
+                
+                -- Enable/disable thickness slider based on style
+                local usesThickness = (choice.value ~= "blizzard" and choice.value ~= "glow")
+                if usesThickness then
+                    row.thickness:Enable()
+                    row.thickness.Text:SetTextColor(1, 1, 1)
+                    row.thickness.Low:SetTextColor(1, 1, 1)
+                    row.thickness.High:SetTextColor(1, 1, 1)
+                else
+                    row.thickness:Disable()
+                    row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
+                    row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
+                    row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
+                end
+                
                 accentuate()
                 if ui.preview.activeKey == option.key then
                     updatePreview(option.key)
@@ -526,6 +674,20 @@ local function refreshHighlightRow(option, row)
     NextTargetDB[styleKey] = styleValue
     UIDropDownMenu_SetSelectedValue(row.dropdown, styleValue)
     UIDropDownMenu_SetText(row.dropdown, styleLabelFor(styleValue))
+    
+    -- Enable/disable thickness slider based on style
+    local usesThickness = (styleValue ~= "blizzard" and styleValue ~= "glow")
+    if usesThickness then
+        row.thickness:Enable()
+        row.thickness.Text:SetTextColor(1, 1, 1)
+        row.thickness.Low:SetTextColor(1, 1, 1)
+        row.thickness.High:SetTextColor(1, 1, 1)
+    else
+        row.thickness:Disable()
+        row.thickness.Text:SetTextColor(0.5, 0.5, 0.5)
+        row.thickness.Low:SetTextColor(0.5, 0.5, 0.5)
+        row.thickness.High:SetTextColor(0.5, 0.5, 0.5)
+    end
 end
 
 local function buildPreviewSection()
@@ -536,8 +698,13 @@ local function buildPreviewSection()
 
     local frame = CreateFrame("Frame", nil, content)
     frame:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -22)
-    frame:SetSize(150, 50)
+    frame:SetSize(150, 65)  -- Increased height for header
     ui.preview.frame = frame
+
+    -- Add "Preview" header
+    local previewHeader = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    previewHeader:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 0, -2)
+    previewHeader:SetText("Preview")
 
     local borderFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     borderFrame:SetPoint("CENTER", frame, "CENTER", 0, 0)
@@ -599,11 +766,7 @@ local function buildSettingsUI()
     buildPreviewSection()
 
     local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    local headerOffset = -18
-    if ui.preview.frame then
-        headerOffset = -(ui.preview.frame:GetHeight() + 30)
-    end
-    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, headerOffset)
+    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, -18)
     header:SetText("Highlight Styles")
 
     for index, option in ipairs(highlightOptions) do
@@ -612,7 +775,7 @@ local function buildSettingsUI()
         ui.highlightRows[option.key] = row
     end
 
-    content:SetHeight(240 + #highlightOptions * 56)
+    content:SetHeight(240 + #highlightOptions * 68)  -- Updated for two-line layout
 end
 
 panel:SetScript("OnShow", function()

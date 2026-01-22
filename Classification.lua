@@ -66,177 +66,31 @@ local function normalizeLines(lines)
     return normalized
 end
 
-local tooltipScanner = CreateFrame("GameTooltip", addonName .. "TooltipScanner", UIParent, "GameTooltipTemplate")
-tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
-
 local QUEST_CACHE_SECONDS = 5 -- fallback TTL in case quest change events are missed
 local UNIT_CACHE_SECONDS = 1.25
 local UNIT_CACHE_PENDING_OBJECTIVE_SECONDS = 0.1
-local MYTHIC_SCENARIO_CACHE_SECONDS = 0.5
-local CHALLENGE_MODE_CACHE_SECONDS = 1
 
 local questCache = { timestamp = 0, entries = {} }
 local unitCache = {}
-local mythicScenarioCache = { timestamp = 0, status = {} }
 local tooltipTextCache = {}
-local challengeModeCache = { timestamp = 0, isActive = false }
 
 local function resetCaches()
     questCache.timestamp = 0
     if wipeTable then
         wipeTable(questCache.entries)
+        wipeTable(tooltipTextCache)
     else
         questCache.entries = {}
+        tooltipTextCache = {}
     end
     unitCache = {}
-
-    mythicScenarioCache.timestamp = 0
-    mythicScenarioCache.status = mythicScenarioCache.status or {}
-    if wipeTable then
-        wipeTable(mythicScenarioCache.status)
-    else
-        mythicScenarioCache.status = {}
-    end
-
-    tooltipTextCache = {}
-
-    challengeModeCache.timestamp = 0
-    challengeModeCache.isActive = false
 end
 
-local function isInMythicPlusInstance()
-    if not IsInInstance then
-        return false
-    end
 
-    local inInstance, instanceType = IsInInstance()
-    if not inInstance or instanceType ~= "party" then
-        return false
-    end
 
-    if not GetInstanceInfo then
-        return false
-    end
 
-    local _, _, difficultyID = GetInstanceInfo()
-    if difficultyID == 8 then -- Mythic Keystone
-        return true
-    end
 
-    return false
-end
 
-local function isChallengeModeActive()
-    -- Check cache first
-    local now = GetTime()
-    if challengeModeCache.timestamp > 0 and (now - challengeModeCache.timestamp) < CHALLENGE_MODE_CACHE_SECONDS then
-        return challengeModeCache.isActive
-    end
-
-    -- Quick check: are we even in a mythic+ instance?
-    if not isInMythicPlusInstance() then
-        challengeModeCache.timestamp = now
-        challengeModeCache.isActive = false
-        return false
-    end
-
-    local isActive = false
-
-    -- Primary check: Modern API (most reliable)
-    if C_MythicPlus and C_MythicPlus.IsMythicPlusActive and C_MythicPlus.IsMythicPlusActive() then
-        isActive = true
-    -- Fallback: Challenge mode API
-    elseif C_ChallengeMode then
-        -- Try IsChallengeModeActive first (simplest check)
-        if C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
-            isActive = true
-        -- Try GetActiveKeystoneInfo (more detailed info)
-        elseif C_ChallengeMode.GetActiveKeystoneInfo then
-            local keystoneMapID, keystoneLevel = C_ChallengeMode.GetActiveKeystoneInfo()
-            if keystoneMapID and keystoneMapID > 0 and keystoneLevel and keystoneLevel > 0 then
-                isActive = true
-            end
-        end
-    end
-
-    challengeModeCache.timestamp = now
-    challengeModeCache.isActive = isActive
-    return isActive
-end
-
-local function getMythicScenarioStatus()
-    if not isChallengeModeActive() then
-        mythicScenarioCache.timestamp = 0
-        mythicScenarioCache.status = mythicScenarioCache.status or {}
-        wipeTable(mythicScenarioCache.status)
-        mythicScenarioCache.status.isActive = false
-        mythicScenarioCache.status.enemyForcesCurrent = 0
-        mythicScenarioCache.status.enemyForcesTotal = 0
-        mythicScenarioCache.status.enemyForcesComplete = false
-        mythicScenarioCache.status.hasEnemyForces = false
-        mythicScenarioCache.status.bosses = {}
-        return mythicScenarioCache.status
-    end
-
-    local now = GetTime()
-    if mythicScenarioCache.timestamp > 0 and (now - mythicScenarioCache.timestamp) < MYTHIC_SCENARIO_CACHE_SECONDS then
-        return mythicScenarioCache.status
-    end
-
-    mythicScenarioCache.timestamp = now
-    mythicScenarioCache.status = mythicScenarioCache.status or {}
-    local status = mythicScenarioCache.status
-    wipeTable(status)
-    status.isActive = true
-    status.enemyForcesCurrent = 0
-    status.enemyForcesTotal = 0
-    status.enemyForcesComplete = false
-    status.hasEnemyForces = false
-    status.bosses = {}
-
-    if not C_Scenario or not C_Scenario.GetStepInfo then
-        return status
-    end
-
-    local _, _, numCriteria = C_Scenario.GetStepInfo()
-    if not numCriteria then
-        return status
-    end
-
-    local getCriteriaInfo = C_Scenario.GetCriteriaInfo
-
-    if not getCriteriaInfo and C_Scenario.GetCriteriaInfoByStep then
-        getCriteriaInfo = function(idx)
-            return C_Scenario.GetCriteriaInfoByStep(1, idx)
-        end
-    end
-
-    if not getCriteriaInfo then
-        return status
-    end
-
-    for index = 1, numCriteria do
-        local description, _, completed, quantity, totalQuantity = getCriteriaInfo(index)
-        if description then
-            local descriptionLower = strlower(description)
-            if descriptionLower:find("enemy forces", 1, true) then
-                status.hasEnemyForces = true
-                status.enemyForcesCurrent = quantity or 0
-                status.enemyForcesTotal = totalQuantity or 0
-                status.enemyForcesComplete = completed or ((quantity or 0) >= (totalQuantity or 0) and (totalQuantity or 0) > 0)
-            else
-                local normalizedDescription = normalizeText(description)
-                status.bosses[#status.bosses + 1] = {
-                    description = description,
-                    normalized = normalizedDescription,
-                    completed = completed or false,
-                }
-            end
-        end
-    end
-
-    return status
-end
 
 local function getCachedTooltipText(text)
     if not text or text == "" then
@@ -272,50 +126,50 @@ local function parseTooltip(unit)
 
     local uniqueLines = {}
 
-    tooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
-    tooltipScanner:SetUnit(unit)
-
-    local lineCount = tooltipScanner:NumLines() or 0
-    for index = 2, lineCount do
-        local line = _G[tooltipScanner:GetName() .. "TextLeft" .. index]
-        local text = line and line:GetText()
-        if text and text ~= "" then
-            local sanitized = getCachedTooltipText(text)
-            if sanitized and sanitized ~= "" then
-                if not uniqueLines[sanitized] then
-                    uniqueLines[sanitized] = true
-                    info.lines[#info.lines + 1] = sanitized
-                end
-
-                local lower = strlower(sanitized)
-                local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
-                if isEnemyForcesLine then
-                    info.hasEnemyForcesLine = true
-                end
-
-                local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
-                if current and total and not isEnemyForcesLine then
-                    local currentNum = tonumber(current)
-                    local totalNum = tonumber(total)
-                    if currentNum and totalNum then
-                        if currentNum >= totalNum then
-                            info.hasCompletedObjective = true
-                        else
-                            info.hasQuestObjective = true
+    if C_TooltipInfo and C_TooltipInfo.GetUnit then
+        local data = C_TooltipInfo.GetUnit(unit)
+        if data then
+            for _, line in ipairs(data.lines) do
+                local text = line.leftText
+                if text and text ~= "" then
+                    local sanitized = getCachedTooltipText(text)
+                    if sanitized and sanitized ~= "" then
+                        if not uniqueLines[sanitized] then
+                            uniqueLines[sanitized] = true
+                            info.lines[#info.lines + 1] = sanitized
                         end
-                    end
-                end
 
-                local percentValue = sanitized:match("(%d?%d?%d)%%")
-                if percentValue then
-                    local isThreatLine = lower:find("threat", 1, true) ~= nil
-                    if not isThreatLine and not isEnemyForcesLine then
-                        local percentNum = tonumber(percentValue)
-                        if percentNum then
-                            if percentNum >= 100 then
-                                info.hasCompletedObjective = true
-                            else
-                                info.hasQuestObjective = true
+                        local lower = strlower(sanitized)
+                        local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
+                        if isEnemyForcesLine then
+                            info.hasEnemyForcesLine = true
+                        end
+
+                        local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
+                        if current and total and not isEnemyForcesLine then
+                            local currentNum = tonumber(current)
+                            local totalNum = tonumber(total)
+                            if currentNum and totalNum then
+                                if currentNum >= totalNum then
+                                    info.hasCompletedObjective = true
+                                else
+                                    info.hasQuestObjective = true
+                                end
+                            end
+                        end
+
+                        local percentValue = sanitized:match("(%d?%d?%d)%%")
+                        if percentValue then
+                            local isThreatLine = lower:find("threat", 1, true) ~= nil
+                            if not isThreatLine and not isEnemyForcesLine then
+                                local percentNum = tonumber(percentValue)
+                                if percentNum then
+                                    if percentNum >= 100 then
+                                        info.hasCompletedObjective = true
+                                    else
+                                        info.hasQuestObjective = true
+                                    end
+                                end
                             end
                         end
                     end
@@ -325,8 +179,6 @@ local function parseTooltip(unit)
     end
 
     info.normalizedLines = normalizeLines(info.lines)
-
-    tooltipScanner:Hide()
     return info
 end
 
@@ -336,9 +188,27 @@ local function hasQuestItemIcon(unit)
     end
 
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
-    local frame = nameplate and nameplate.UnitFrame and nameplate.UnitFrame.SoftTargetFrame
-    if frame and frame:IsShown() and frame.Icon and frame.Icon:IsShown() then
-        return true
+    if not nameplate then
+        return false
+    end
+    
+    -- Try multiple possible locations for the SoftTargetFrame
+    local softTargetFrame = nil
+    if nameplate.UnitFrame then
+        softTargetFrame = nameplate.UnitFrame.SoftTargetFrame
+                      or nameplate.UnitFrame.softTargetFrame
+    end
+    
+    -- Also check direct child of nameplate
+    if not softTargetFrame then
+        softTargetFrame = nameplate.SoftTargetFrame or nameplate.softTargetFrame
+    end
+    
+    if softTargetFrame and softTargetFrame:IsShown() then
+        -- Only return true if icon exists and is shown
+        if softTargetFrame.Icon and softTargetFrame.Icon:IsShown() then
+            return true
+        end
     end
 
     return false
@@ -662,8 +532,6 @@ local function classifyUnit(unitData)
             questType = "Regular"
         end
     end
-    local mythicStatus = getMythicScenarioStatus()
-    local inChallengeMode = mythicStatus and mythicStatus.isActive
     local hasSoftTarget = hasQuestItemIcon(unit)
     local isQuestBoss = UnitIsQuestBoss and UnitIsQuestBoss(unit)
     local isBossUnit = UnitIsBossMob and UnitIsBossMob(unit)
@@ -743,13 +611,6 @@ local function classifyUnit(unitData)
         hasTooltipObjective = tooltipInfo.hasQuestObjective,
         hasCompletedObjective = tooltipInfo.hasCompletedObjective,
         isRare = isRare,
-        isMythicObjective = (reason == "Mythic Objective"),
-        isMythicBoss = isMythicBoss,
-        isMythicEnemyForces = isMythicEnemyForces,
-        mythicEnemyForcesComplete = mythicStatus and mythicStatus.enemyForcesComplete,
-        mythicEnemyForcesProgress = mythicStatus and mythicStatus.enemyForcesCurrent,
-        mythicEnemyForcesTotal = mythicStatus and mythicStatus.enemyForcesTotal,
-        mythicBossName = mythicBossName,
     }
 
     if not reason then
