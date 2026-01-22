@@ -7,6 +7,7 @@ local strlower = string.lower
 
 local questUtilsIsWorldQuest = rawget(_G, "QuestUtils_IsQuestWorldQuest")
 local questUtilsIsBonusObjective = rawget(_G, "QuestUtils_IsQuestBonusObjective")
+local getQuestLogSpecialItemInfo = rawget(_G, "GetQuestLogSpecialItemInfo")
 
 local function trim(value)
     if not value then
@@ -289,6 +290,7 @@ local function refreshQuestCache()
             isWorldQuest = false,
             isBonusObjective = false,
             normalizedQuestName = nil,
+            hasQuestItem = seed.hasQuestItem,
         }
 
         entry.isWorldQuest = determineWorldQuestFlag(questID, seed.isWorldQuest)
@@ -352,10 +354,20 @@ local function refreshQuestCache()
         local info = C_QuestLog.GetInfo(index)
         if info and not info.isHeader and info.questID then
             local questID = info.questID
+
+            local hasQuestItem = false
+            if getQuestLogSpecialItemInfo then
+                local itemID = getQuestLogSpecialItemInfo(index)
+                if itemID then
+                    hasQuestItem = true
+                end
+            end
+
             local entry = buildQuestEntry(questID, {
                 questInfo = info,
                 isBonusObjective = info and info.isBonusObjective,
                 isWorldQuest = info and info.isWorldQuest,
+                hasQuestItem = hasQuestItem,
             })
             addEntry(entry)
         end
@@ -509,6 +521,7 @@ local function classifyUnit(unitData)
     local questID = questMatch and questMatch.questID or nil
     local isWorldQuest = questMatch and questMatch.isWorldQuest or false
     local isBonusObjective = questMatch and questMatch.isBonusObjective or false
+    local hasQuestItem = questMatch and questMatch.hasQuestItem or false
     local questType = nil
     if questMatch then
         if isBonusObjective then
@@ -528,34 +541,56 @@ local function classifyUnit(unitData)
     local isRare = classification == "rare" or classification == "rareelite" or classification == "elite"
 
     local reason
-    
-    -- First check if this unit has a quest objective in the tooltip
-    -- If it does AND has a quest item icon, it's a quest item target
-    -- If it has a quest objective but NO quest item icon, it's a regular quest objective
-    -- If it has a quest item icon but NO quest objective, ignore it (false positive)
-    
-    if tooltipInfo.hasQuestObjective then
-        if hasSoftTarget then
-            -- Both quest objective AND quest item icon = Quest Item Target
-            reason = "Has Quest Item"
+    local isMythicBoss = false
+    local isMythicEnemyForces = false
+    local mythicBossName
+    if hasSoftTarget or hasQuestItem then
+        reason = "Has Quest Item"
+    elseif tooltipInfo.hasQuestObjective then
+        if isBonusObjective then
+            reason = "Bonus Objective"
+        elseif isWorldQuest then
+            reason = "World Quest"
         else
-            -- Quest objective but no quest item icon = Regular Quest Objective
-            if isBonusObjective then
-                reason = "Bonus Objective"
-            elseif isWorldQuest then
-                reason = "World Quest"
-            else
-                reason = "Quest Objective"
-            end
+            reason = "Quest Objective"
         end
-    elseif hasSoftTarget then
-        -- Has quest item icon but no quest objective in tooltip
-        -- This is likely a false positive (e.g., Plains Doe case)
-        -- Don't set a reason, which means it won't be highlighted
-        reason = nil
     end
 
+    if not reason and inChallengeMode then
+        local isNpc = not UnitIsPlayer(unit)
+        local matchedBoss
+        if isNpc and mythicStatus and mythicStatus.bosses and unitNameNormalized then
+            for _, boss in ipairs(mythicStatus.bosses) do
+                if boss and not boss.completed and boss.normalized then
+                    if boss.normalized:find(unitNameNormalized, 1, true) or unitNameNormalized:find(boss.normalized, 1, true) then
+                        matchedBoss = boss
+                        break
+                    end
+                end
+            end
+        end
 
+        if not matchedBoss and isNpc and isBossUnit then
+            matchedBoss = { description = unitName, normalized = unitNameNormalized, completed = false }
+        end
+
+        if matchedBoss then
+            reason = "Mythic Objective"
+            isMythicBoss = true
+            mythicBossName = matchedBoss.description or unitName
+        else
+            local reactionToPlayer = UnitReaction and UnitReaction(unit, "player")
+            local hostile = not reactionToPlayer or reactionToPlayer <= 4
+            local enemyForcesAvailable = mythicStatus and mythicStatus.hasEnemyForces and not mythicStatus.enemyForcesComplete
+            if not enemyForcesAvailable and tooltipInfo.hasEnemyForcesLine then
+                enemyForcesAvailable = not tooltipInfo.hasCompletedObjective
+            end
+            if isNpc and hostile and enemyForcesAvailable then
+                reason = "Mythic Objective"
+                isMythicEnemyForces = true
+            end
+        end
+    end
 
     local result = {
         unit = unit,
