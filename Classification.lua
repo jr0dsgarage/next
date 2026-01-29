@@ -486,7 +486,7 @@ end
 
 local function classifyUnit(unitData)
     local guid = unitData.guid
-    if not guid then
+    if not guid or type(guid) ~= "string" then
         return nil
     end
 
@@ -654,7 +654,7 @@ local function addUnit(target, unitToken, frame)
     end
 
     local guid = UnitGUID(unitToken)
-    if not guid then
+    if not guid or type(guid) ~= "string" then
         return
     end
 
