@@ -110,12 +110,12 @@ local function applyOutlineHighlight(self, healthBar, style, plate)
 
     local function createTexture(point, relativePoint, xOffset, yOffset, width, height)
         local texture = createStyledTexture(self, healthBar, color)
-        texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
+        texture:SetPoint(point, healthBar, relativePoint, math.floor(xOffset), math.floor(yOffset))
         if width then
-            texture:SetWidth(width)
+            texture:SetWidth(math.floor(width))
         end
         if height then
-            texture:SetHeight(height)
+            texture:SetHeight(math.floor(height))
         end
         return texture
     end
@@ -146,7 +146,7 @@ end
 
 local function applyBlizzardHighlight(self, healthBar, style, plate)
     local color = style.color
-    local offset = (style.offset or 0) + 4  -- Remap: user's 0 = actual 4 (Blizzard's size)
+    local offset = math.floor((style.offset or 0) + 4)  -- Remap: user's 0 = actual 4 (Blizzard's size)
 
     local texture = createStyledTexture(self, healthBar, color)
     texture:SetDrawLayer("OVERLAY", 0)
@@ -173,7 +173,7 @@ end
 
 local function applyGlowHighlight(self, healthBar, style, plate)
     local color = style.color
-    local offset = (style.offset or 0) - 4  -- Reduce offset so glow sits tighter to healthbar
+    local offset = math.floor((style.offset or 0) - 4)  -- Reduce offset so glow sits tighter to healthbar
 
     -- Helper to create a glow texture piece using atlas
     local function createGlowTexture(atlasName, useAtlasSize)

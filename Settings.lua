@@ -5,9 +5,21 @@ local addonName, addon = ...
 local panel = CreateFrame("Frame")
 panel.name = "next"
 
-local scrollFrame = CreateFrame("ScrollFrame", addonName .. "SettingsScrollFrame", panel, "UIPanelScrollFrameTemplate")
-scrollFrame:SetPoint("TOPLEFT", 3, -4)
-scrollFrame:SetPoint("BOTTOMRIGHT", -27, 4)
+local bgFrame = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+bgFrame:SetPoint("TOPLEFT", 4, -4)
+bgFrame:SetPoint("BOTTOMRIGHT", -4, 4)
+bgFrame:SetBackdrop({
+    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 16, edgeSize = 16,
+    insets = { left = 4, right = 4, top = 4, bottom = 4 }
+})
+bgFrame:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
+bgFrame:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+
+local scrollFrame = CreateFrame("ScrollFrame", addonName .. "SettingsScrollFrame", bgFrame, "UIPanelScrollFrameTemplate")
+scrollFrame:SetPoint("TOPLEFT", 0, -4)
+scrollFrame:SetPoint("BOTTOMRIGHT", -26, 4)
 
 local content = CreateFrame("Frame", nil, scrollFrame)
 content:SetSize(620, 640)
