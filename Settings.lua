@@ -760,7 +760,7 @@ local function buildSettingsUI()
 
     local subtitle = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-    subtitle:SetText("Highlights the next enemy target that pressing TAB would select.")
+    subtitle:SetText("Highlight potential next targets")
 
     local enable = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
     enable:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -14)
