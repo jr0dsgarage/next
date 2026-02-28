@@ -507,7 +507,23 @@ local function matchQuestFromTooltip(unit, tooltipInfo, questEntries)
         return nil, nil
     end
 
-    -- Avoid direct string comparisons on tooltip text due protected/secret-string taint issues.
+    local normalizedTooltipLines = tooltipInfo.normalizedLines
+    if not normalizedTooltipLines and tooltipInfo.lines then
+        normalizedTooltipLines = normalizeLines(tooltipInfo.lines)
+    end
+
+    if normalizedTooltipLines then
+        for _, entry in ipairs(questEntries) do
+            local normalizedQuestName = entry.normalizedQuestName
+            if normalizedQuestName then
+                for _, line in ipairs(normalizedTooltipLines) do
+                    if safeContains(line, normalizedQuestName) or safeContains(normalizedQuestName, line) then
+                        return entry, "tooltip-name"
+                    end
+                end
+            end
+        end
+    end
 
     return nil, nil
 end
