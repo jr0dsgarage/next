@@ -257,7 +257,26 @@ local highlightHandlers = {
     glow = applyGlowHighlight,
 }
 
-local function determineStyle(result, currentGuid)
+local function isCurrentTarget(result)
+    if not result or not result.unit then
+        return false
+    end
+
+    if result.unit == "target" then
+        return true
+    end
+
+    if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+        local targetPlate = C_NamePlate.GetNamePlateForUnit("target")
+        if targetPlate and result.frame and targetPlate == result.frame then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function determineStyle(result)
     local baseStyle
 
     local configMap = {
@@ -289,7 +308,7 @@ local function determineStyle(result, currentGuid)
         baseStyle.mode = "outline"
     end
 
-    if result.guid == currentGuid and NextTargetDB.currentTargetEnabled then
+    if isCurrentTarget(result) and NextTargetDB.currentTargetEnabled then
         local mode = NextTargetDB.currentTargetStyle or addon:GetDefault("currentTargetStyle") or (baseStyle and baseStyle.mode) or "outline"
         if mode == "border" then
             mode = "outline"
@@ -317,17 +336,16 @@ end
 function addon:CollectHighlights()
     local relevantUnits = self:GetRelevantUnits()
     local results = {}
-    local currentGuid = UnitGUID("target")
 
     for _, unitData in ipairs(relevantUnits) do
         local classification = self:ClassifyUnit(unitData)
         if classification then
             classification.frame = classification.frame or unitData.frame
             classification.highlighted = false
-            classification.isCurrentTarget = classification.guid == currentGuid
+            classification.isCurrentTarget = isCurrentTarget(classification)
             results[#results + 1] = classification
 
-            local style = determineStyle(classification, currentGuid)
+            local style = determineStyle(classification)
             if style then
                 classification.highlighted = true
                 if classification.note == "Disabled in settings" then

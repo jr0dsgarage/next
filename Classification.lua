@@ -9,41 +9,95 @@ local questUtilsIsWorldQuest = rawget(_G, "QuestUtils_IsQuestWorldQuest")
 local questUtilsIsBonusObjective = rawget(_G, "QuestUtils_IsQuestBonusObjective")
 local getQuestLogSpecialItemInfo = rawget(_G, "GetQuestLogSpecialItemInfo")
 
+local function safeGsub(value, pattern, replacement)
+    if type(value) ~= "string" then
+        return nil
+    end
+    local ok, result = pcall(strgsub, value, pattern, replacement)
+    if ok and type(result) == "string" then
+        return result
+    end
+    return nil
+end
+
+local function safeLower(value)
+    if type(value) ~= "string" then
+        return nil
+    end
+    local ok, result = pcall(strlower, value)
+    if ok and type(result) == "string" then
+        return result
+    end
+    return nil
+end
+
+local function safeMatch(value, pattern)
+    if type(value) ~= "string" then
+        return nil, nil
+    end
+    local ok, first, second = pcall(string.match, value, pattern)
+    if ok then
+        return first, second
+    end
+    return nil, nil
+end
+
+local function safeContains(value, needle)
+    if type(value) ~= "string" then
+        return false
+    end
+    local ok, found = pcall(string.find, value, needle, 1, true)
+    return ok and found ~= nil
+end
+
 local function trim(value)
-    if not value then
-        return ""
+    if type(value) ~= "string" then
+        return nil
     end
 
-    local trimmed = value:gsub("^%s+", "")
-    trimmed = trimmed:gsub("%s+$", "")
+    local trimmed = safeGsub(value, "^%s+", "")
+    if not trimmed then
+        return nil
+    end
+    trimmed = safeGsub(trimmed, "%s+$", "")
     return trimmed
 end
 
 local function stripColorCodes(text)
-    if not text or text == "" then
-        return text
+    if type(text) ~= "string" then
+        return nil
     end
-    text = strgsub(text, "|c%x%x%x%x%x%x%x%x", "")
-    text = strgsub(text, "|r", "")
+    text = safeGsub(text, "|c%x%x%x%x%x%x%x%x", "")
+    if not text then
+        return nil
+    end
+    text = safeGsub(text, "|r", "")
     return text
 end
 
 local function normalizeText(text)
-    if not text or text == "" then
+    if type(text) ~= "string" then
         return nil
     end
 
     text = stripColorCodes(text)
-    if not text or text == "" then
+    if type(text) ~= "string" then
         return nil
     end
 
     -- Combine pattern replacements and normalize whitespace
-    text = strgsub(text, "[%[%]%p%c]", " ")  -- Remove brackets, punctuation, control chars
-    text = strlower(text)
-    text = trim(strgsub(text, "%s+", " "))  -- Normalize whitespace and trim in one expression
+    text = safeGsub(text, "[%[%]%p%c]", " ")  -- Remove brackets, punctuation, control chars
+    if not text then
+        return nil
+    end
+    text = safeLower(text)
+    if not text then
+        return nil
+    end
+    text = safeGsub(text, "%s+", " ")
+    text = trim(text)
 
-    return text ~= "" and text or nil
+    return text
 end
 
 local function normalizeLines(lines)
@@ -54,7 +108,7 @@ local function normalizeLines(lines)
     local normalized = {}
     for _, line in ipairs(lines) do
         local normalizedLine = normalizeText(line)
-        if normalizedLine and normalizedLine ~= "" then
+        if normalizedLine then
             normalized[#normalized + 1] = normalizedLine
         end
     end
@@ -93,25 +147,20 @@ end
 
 
 local function getCachedTooltipText(text)
-    if not text or text == "" then
+    if type(text) ~= "string" then
         return nil
     end
-    
-    local cached = tooltipTextCache[text]
-    if cached then
-        return cached
-    end
-    
+
     local sanitized = stripColorCodes(text)
     if sanitized then
-        sanitized = trim(strgsub(sanitized, "%s+", " "))
+        sanitized = safeGsub(sanitized, "%s+", " ")
+        sanitized = trim(sanitized)
     end
-    
-    if sanitized and sanitized ~= "" then
-        tooltipTextCache[text] = sanitized
+
+    if sanitized then
         return sanitized
     end
-    
+
     return nil
 end
 
@@ -124,28 +173,23 @@ local function parseTooltip(unit)
         normalizedLines = nil,
     }
 
-    local uniqueLines = {}
-
     if C_TooltipInfo and C_TooltipInfo.GetUnit then
         local data = C_TooltipInfo.GetUnit(unit)
         if data then
             for _, line in ipairs(data.lines) do
                 local text = line.leftText
-                if text and text ~= "" then
+                if type(text) == "string" then
                     local sanitized = getCachedTooltipText(text)
-                    if sanitized and sanitized ~= "" then
-                        if not uniqueLines[sanitized] then
-                            uniqueLines[sanitized] = true
-                            info.lines[#info.lines + 1] = sanitized
-                        end
+                    if sanitized then
+                        info.lines[#info.lines + 1] = sanitized
 
-                        local lower = strlower(sanitized)
-                        local isEnemyForcesLine = lower:find("enemy forces", 1, true) ~= nil
+                        local lower = safeLower(sanitized)
+                        local isEnemyForcesLine = safeContains(lower, "enemy forces")
                         if isEnemyForcesLine then
                             info.hasEnemyForcesLine = true
                         end
 
-                        local current, total = sanitized:match("(%d+)%s*/%s*(%d+)")
+                        local current, total = safeMatch(sanitized, "(%d+)%s*/%s*(%d+)")
                         if current and total and not isEnemyForcesLine then
                             local currentNum = tonumber(current)
                             local totalNum = tonumber(total)
@@ -158,9 +202,9 @@ local function parseTooltip(unit)
                             end
                         end
 
-                        local percentValue = sanitized:match("(%d?%d?%d)%%")
+                        local percentValue = safeMatch(sanitized, "(%d?%d?%d)%%")
                         if percentValue then
-                            local isThreatLine = lower:find("threat", 1, true) ~= nil
+                            local isThreatLine = safeContains(lower, "threat")
                             if not isThreatLine and not isEnemyForcesLine then
                                 local percentNum = tonumber(percentValue)
                                 if percentNum then
@@ -339,8 +383,8 @@ local function refreshQuestCache()
         end
 
         if not entry.isBonusObjective and entry.questName then
-            local nameLower = strlower(entry.questName)
-            if nameLower:find("bonus objective", 1, true) then
+            local nameLower = safeLower(entry.questName)
+            if safeContains(nameLower, "bonus objective") then
                 entry.isBonusObjective = true
             end
         end
@@ -463,37 +507,21 @@ local function matchQuestFromTooltip(unit, tooltipInfo, questEntries)
         return nil, nil
     end
 
-    local normalizedTooltipLines = tooltipInfo.normalizedLines
-    if not normalizedTooltipLines and tooltipInfo.lines then
-        normalizedTooltipLines = normalizeLines(tooltipInfo.lines)
-    end
-
-    if normalizedTooltipLines then
-        for _, entry in ipairs(questEntries) do
-            local normalizedQuestName = entry.normalizedQuestName
-            if normalizedQuestName then
-                for _, line in ipairs(normalizedTooltipLines) do
-                    if line == normalizedQuestName or line:find(normalizedQuestName, 1, true) or normalizedQuestName:find(line, 1, true) then
-                        return entry, "tooltip-name"
-                    end
-                end
-            end
-        end
-    end
+    -- Avoid direct string comparisons on tooltip text due protected/secret-string taint issues.
 
     return nil, nil
 end
 
 local function classifyUnit(unitData)
-    local guid = unitData.guid
-    if not guid or type(guid) ~= "string" then
+    local cacheKey = unitData.frame or unitData.unit
+    if not cacheKey then
         return nil
     end
 
     local now = GetTime()
     local questTimestamp = questCache.timestamp or 0
     local questDataExpired = (now - questTimestamp) >= QUEST_CACHE_SECONDS
-    local cached = unitCache[guid]
+    local cached = unitCache[cacheKey]
     if cached then
         local expires = cached.expires or (cached.time and (cached.time + UNIT_CACHE_SECONDS)) or 0
         local cacheValid = not questDataExpired and now < expires
@@ -505,8 +533,8 @@ local function classifyUnit(unitData)
 
     local unit = unitData.unit
     local unitName = UnitName(unit)
-    if not unitName or unitName == "" then
-        unitCache[guid] = {
+    if type(unitName) ~= "string" then
+        unitCache[cacheKey] = {
             result = nil,
             expires = now + UNIT_CACHE_SECONDS,
             questTimestamp = questCache.timestamp,
@@ -562,7 +590,7 @@ local function classifyUnit(unitData)
         if isNpc and mythicStatus and mythicStatus.bosses and unitNameNormalized then
             for _, boss in ipairs(mythicStatus.bosses) do
                 if boss and not boss.completed and boss.normalized then
-                    if boss.normalized:find(unitNameNormalized, 1, true) or unitNameNormalized:find(boss.normalized, 1, true) then
+                    if safeContains(boss.normalized, unitNameNormalized) or safeContains(unitNameNormalized, boss.normalized) then
                         matchedBoss = boss
                         break
                     end
@@ -594,7 +622,6 @@ local function classifyUnit(unitData)
 
     local result = {
         unit = unit,
-        guid = guid,
         frame = unitData.frame,
         name = unitName,
         reason = reason,
@@ -632,7 +659,7 @@ local function classifyUnit(unitData)
         cacheDuration = UNIT_CACHE_PENDING_OBJECTIVE_SECONDS
     end
 
-    unitCache[guid] = {
+    unitCache[cacheKey] = {
         result = result,
         expires = now + cacheDuration,
         questTimestamp = questCache.timestamp,
@@ -653,20 +680,8 @@ local function addUnit(target, unitToken, frame)
         return
     end
 
-    local guid = UnitGUID(unitToken)
-    if not guid or type(guid) ~= "string" then
-        return
-    end
-
-    for _, data in ipairs(target) do
-        if data.guid == guid then
-            return
-        end
-    end
-
     target[#target + 1] = {
         unit = unitToken,
-        guid = guid,
         frame = frame,
     }
 end
