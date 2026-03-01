@@ -289,23 +289,6 @@ local function refreshQuestCache()
             return true
         end
 
-        if questUtilsIsBonusObjective and questUtilsIsBonusObjective(questID) then
-            return true
-        end
-
-        if C_TaskQuest then
-            if C_TaskQuest.IsActive and C_TaskQuest.IsActive(questID) then
-                return true
-            end
-
-            if C_TaskQuest.GetQuestInfoByQuestID then
-                local taskInfo = C_TaskQuest.GetQuestInfoByQuestID(questID)
-                if taskInfo and (taskInfo.isDaily or taskInfo.isInvasion or taskInfo.isCombatAllyQuest or taskInfo.isQuestStart) then
-                    return true
-                end
-            end
-        end
-
         return false
     end
 
