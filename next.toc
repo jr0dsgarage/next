@@ -1,7 +1,8 @@
-## Interface: 120000
+## Interface: 120005
 ## Title: [next] - kNow Each eXact Target 
 ## Author: j__r0d
 ## Version: 1.1.1
+## Category-enUS: j__r0d's garage
 ## Notes: Highlights visible nameplates to show quest targets.  
 ## DefaultState: Enabled
 ## LoadOnDemand: 0
