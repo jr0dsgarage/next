@@ -601,8 +601,8 @@ local function buildSettingsUI()
             NextTargetDB.hideDefaultBorder = checked
         end)
 
-    ui.hideLevelBadgeBorder = addOption("Disable Level Badge border",
-        "Hides the border around the level badge. When unchecked, the level badge gets the same border as its health bar: your highlight style for that nameplate, or Blizzard's border.",
+    ui.hideLevelBadgeBorder = addOption("Disable Default Level Badge border",
+        "Hides Blizzard's target/focus border around the level badge. When unchecked, the level badge keeps Blizzard's border (redrawn by \"Fix Default border offset\" if that's on); next's highlight styles are never drawn on it.",
         function(checked)
             NextTargetDB.hideLevelBadgeBorder = checked
         end)
@@ -617,14 +617,39 @@ local function buildSettingsUI()
         local row = createHighlightRow(header, option, index)
         bindHighlightRow(option, row)
         ui.highlightRows[option.key] = row
+        ui.lastRow = row
+    end
+end
+
+-- Size the scroll child to exactly fit its contents (measured once the panel has a layout),
+-- so the scroll bar only appears when the panel is actually too short.
+local CONTENT_BOTTOM_PADDING = 16
+
+local function fitContentHeight()
+    local row = ui.lastRow
+    local top = content:GetTop()
+    if not row or not top then
+        return
     end
 
-    content:SetHeight(360 + #highlightOptions * 68)  -- Updated for two-line layout
+    local bottom
+    for _, region in ipairs({ row.checkbox, row.dropdown, row.thickness.Low, row.offset.Low, row.previewButton }) do
+        local regionBottom = region:GetBottom()
+        if regionBottom and (not bottom or regionBottom < bottom) then
+            bottom = regionBottom
+        end
+    end
+    if bottom then
+        content:SetHeight(math.ceil(top - bottom) + CONTENT_BOTTOM_PADDING)
+    end
 end
 
 panel:SetScript("OnShow", function()
     buildSettingsUI()
     panel.refresh()
+    fitContentHeight()
+    -- Anchors may not be resolved until the first frame after the panel is shown.
+    C_Timer.After(0, fitContentHeight)
 end)
 
 function panel.refresh()

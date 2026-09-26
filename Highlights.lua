@@ -16,12 +16,11 @@ local FALLBACK_BLIZZARD_INSET = 4
 -- anchors, and their layout varies between client builds).
 local DEFAULT_BORDER_SHRINK = 1
 local NO_EDGE_ADJUST = { left = 0, top = 0, right = 0, bottom = 0 }
--- "Fix Default border offset": Blizzard's target atlas (UI-HUD-CoolDownManager-Selected-yellow) reaches
--- 1px too far out on the top and sides (measured: 2px gaps left/top vs 1px bottom; with left/top
--- corrected, those measure an even 1px). Right assumed to mirror left; pull those edges in.
+-- "Fix Default border offset": per-edge inward nudges (tuned in-game) that make Blizzard's default
+-- border atlas (UI-HUD-CoolDownManager-Selected-yellow) sit evenly around the health bar.
 local DEFAULT_BORDER_EDGE_ADJUST = { left = 2, top = 3, right = 1, bottom = 1 }
--- The level badge's border is laid out differently: with the health bar's correction applied, its
--- bottom still measured ~3px from the badge box vs 1px on the other sides.
+-- The same, tuned in-game for the level badge's own border. The badge only ever shows Blizzard's
+-- default border (fixed or not), never next's highlight styles.
 local LEVEL_BADGE_EDGE_ADJUST = { left = 1, top = 4, right = 1, bottom = 2 }
 local GLOW_SIZE = 16
 
@@ -152,11 +151,17 @@ end
 -- Renderers -----------------------------------------------------------------
 -- Each bar keeps its own persistent parts (created on first use) that are shown or hidden per update.
 
-local function getParts(bar)
-    local parts = bar.next_highlight
+-- A host can carry several independent sets of parts (the health bar hosts its own and the badge's).
+local function getParts(host, key)
+    local sets = host.next_highlight
+    if not sets then
+        sets = {}
+        host.next_highlight = sets
+    end
+    local parts = sets[key]
     if not parts then
         parts = {}
-        bar.next_highlight = parts
+        sets[key] = parts
     end
     return parts
 end
@@ -311,14 +316,14 @@ end
 -- The level-difference badge beside the health bar (newer clients give it its own selectedBorder).
 local function badgeGeometry(badge)
     return {
-        frame = badge.playerLevelDiffIcon or badge,
+        frame = badge,
         native = badge.selectedBorder,
         atlas = BLIZZARD_BORDER_ATLAS,
     }
 end
 
-local function renderSurface(host, style, geo)
-    local parts = getParts(host)
+local function renderSurface(host, key, style, geo)
+    local parts = getParts(host, key)
     hideParts(parts)
     if not style then
         return
@@ -331,7 +336,7 @@ end
 
 -- Draws `style` on any status bar (live nameplate or the settings preview); nil style hides it.
 function addon:RenderBarHighlight(bar, style)
-    renderSurface(bar, style, barGeometry(bar))
+    renderSurface(bar, "bar", style, barGeometry(bar))
 end
 
 -- Nameplate bar state ---------------------------------------------------------
@@ -394,34 +399,31 @@ local function isSelectedBar(bar)
     return isBarForUnit(bar, "target") or isBarForUnit(bar, "focus")
 end
 
--- Returns the style to draw on the health bar (or nil), whether Blizzard's health bar border should be
--- hidden, and the style for the level badge. The badge follows the bar except that "Disable Default
--- Health Bar border" only affects the bar: the badge still gets the redrawn default border.
+-- Returns the style to draw on the health bar (or nil) and whether Blizzard's border should be hidden.
 local function resolveBarStyle(bar)
     if not addon.active then
-        return nil, false, nil
+        return nil, false
     end
 
     local targetAllowed = NextTargetDB.currentTargetAlways or bar.next_questStyle ~= nil
     if targetAllowed and isBarForUnit(bar, "target") then
         local targetStyle = currentTargetStyle()
         if targetStyle then
-            return targetStyle, true, targetStyle
+            return targetStyle, true
         end
     end
     if bar.next_questStyle then
-        return bar.next_questStyle, true, bar.next_questStyle
+        return bar.next_questStyle, true
     end
 
-    -- Nothing of ours on this bar; optionally redraw and/or hide Blizzard's default border.
-    local defaultStyle
-    if NextTargetDB.fixDefaultBorderOffset and usesNativeBorder(bar) and isSelectedBar(bar) then
-        defaultStyle = DEFAULT_BORDER_STYLE
-    end
+    -- Nothing of ours on this bar; optionally hide or redraw Blizzard's default border.
     if NextTargetDB.hideDefaultBorder then
-        return nil, true, defaultStyle
+        return nil, true
     end
-    return defaultStyle, defaultStyle ~= nil, defaultStyle
+    if NextTargetDB.fixDefaultBorderOffset and usesNativeBorder(bar) and isSelectedBar(bar) then
+        return DEFAULT_BORDER_STYLE, true
+    end
+    return nil, false
 end
 
 -- Shows Blizzard's border again after we stop owning a bar. We only ever Hide() it (never recolor it),
@@ -434,10 +436,11 @@ local function restoreNativeBorder(bar)
     bar.selectedBorder:SetShown(isSelectedBar(bar))
 end
 
--- The level badge mirrors its health bar (see resolveBarStyle): same style drawn on the badge's own
--- border, or nothing at all when "Disable Level Badge border" is on. Blizzard only toggles that
--- border's shown state, so we hide it via alpha instead of fighting its updates.
-local function refreshBadge(bar, style)
+-- The level badge only ever shows Blizzard's default border, independent of next's highlight styles
+-- on the health bar: "Disable Default Level Badge border" hides it, otherwise "Fix Default border
+-- offset" redraws it (while the unit is the target/focus). Blizzard only toggles that border's shown
+-- state, so we hide it via alpha instead of fighting its updates.
+local function refreshBadge(bar)
     local unitFrame = bar.next_unitFrame
     local badge = unitFrame and unitFrame.PlayerLevelDiffFrame
     local native = badge and badge.selectedBorder
@@ -446,27 +449,23 @@ local function refreshBadge(bar, style)
     end
     captureNativeColor(native)
 
+    local hideBadge = addon.active and NextTargetDB.hideLevelBadgeBorder
     local badgeStyle
-    if addon.active and not NextTargetDB.hideLevelBadgeBorder and style then
-        badgeStyle = style
-        if style.origin == "default" then
-            badgeStyle = nativeCopyStyle(style, native)
-            if badgeStyle then
-                badgeStyle.nativeEdgeAdjust = LEVEL_BADGE_EDGE_ADJUST
-            end
+    if addon.active and not hideBadge and NextTargetDB.fixDefaultBorderOffset and isSelectedBar(bar) then
+        badgeStyle = nativeCopyStyle(DEFAULT_BORDER_STYLE, native)
+        if badgeStyle then
+            badgeStyle.nativeEdgeAdjust = LEVEL_BADGE_EDGE_ADJUST
         end
     end
 
-    renderSurface(badge, badgeStyle, badgeGeometry(badge))
-
-    local hideNative = addon.active and (NextTargetDB.hideLevelBadgeBorder or badgeStyle ~= nil)
-    native:SetAlpha(hideNative and 0 or 1)
+    renderSurface(badge, "badge", badgeStyle, badgeGeometry(badge))
+    native:SetAlpha((hideBadge or badgeStyle ~= nil) and 0 or 1)
 end
 
 -- fromHook: Blizzard just ran UpdateSelectionBorder, so its own border state is already correct.
 local function refreshBar(bar, fromHook)
-    local style, hideNative, badgeStyle = resolveBarStyle(bar)
-    refreshBadge(bar, badgeStyle)
+    local style, hideNative = resolveBarStyle(bar)
+    refreshBadge(bar)
     if style and style.origin == "default" then
         -- If Blizzard's atlas can't be read we can't copy it faithfully; leave Blizzard's showing.
         style = nativeCopyStyle(style, bar.selectedBorder)
