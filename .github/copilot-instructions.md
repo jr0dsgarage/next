@@ -35,27 +35,14 @@ Highlights.lua applies textures to healthbars
 
 ## Nameplate Healthbar Resolution
 
-**API Breaking Changes:**
-WoW frequently restructures nameplate frame hierarchy. Current paths checked in order:
+**Current structure (12.x, `Blizzard_NamePlates.xml`):**
 ```lua
--- Highlights.lua:37-51
-plate.UnitFrame.healthBar  -- Current (Midnight/TWW)
-plate.UnitFrame.healthBars.healthBar
-plate.UnitFrame.HealthBarsContainer.healthBar
-plate.healthBar  -- Legacy fallback
+plate.UnitFrame.HealthBarsContainer.healthBar  -- NamePlateHealthBarMixin
+plate.UnitFrame.healthBar                      -- CompactUnitFrame alias of the same bar
 ```
+The lookup is two field reads, so it is not cached. Unit frames are pooled by Blizzard and move between plates, so never cache a bar on the plate.
 
-**Caching Pattern:**
-```lua
--- Cache resolved healthbar on plate frame to avoid repeated traversal
-if plate.next_healthBar and plate.next_healthBar:IsVisible() then
-    return plate.next_healthBar
-end
--- ... resolution logic ...
-plate.next_healthBar = healthBar  -- Store for next access
-```
-
-**Why This Matters:** Nameplate updates happen frequently. Without caching, we'd traverse the frame tree 100+ times per second.
+The health bar owns `selectedBorder` (atlas `UI-HUD-Nameplates-Selected`) and `deselectedOverlay`. Blizzard toggles both in `UpdateSelectionBorder()` when target or focus changes; `ShouldUseSelectedBorder()` is false for the Classic nameplate style.
 
 ## Tooltip Analysis Pattern
 
@@ -83,9 +70,16 @@ end
 ## Highlight Style System
 
 **Three Style Types:**
-1. **"blizzard"**: Uses native `SetTargetingTexture()` (clean, integrated)
-2. **"outline"**: Custom border textures around healthbar edges
-3. **"glow"**: Soft glow effect via textured overlay
+1. **"blizzard"**: Our copy of the `UI-HUD-Nameplates-Selected` atlas, anchored to Blizzard's `selectedBorder` so it matches native geometry (offset 0 = native size)
+2. **"outline"**: Blizzard's `NamePlateFullBorderTemplate` (pixel-snapped via `PixelUtil`), with a local fallback mixin if the template is missing
+3. **"glow"**: `ButtonGreenGlow-NineSlice-*` atlas pieces with additive blending
+
+**Replacing Blizzard's selected border:**
+- Each health bar gets `hooksecurefunc(bar, "UpdateSelectionBorder", ...)`. The hook runs right after Blizzard reacts to target/focus changes, so there is no flash of the native border.
+- When `next` has a style for a bar (current target style, or quest style), it hides `selectedBorder` and draws its own.
+- When it stops owning the bar, it re-shows `selectedBorder` based on target/focus. It only ever hides Blizzard's texture, never recolors it.
+- Never call Blizzard's `UpdateSelectionBorder()` from addon code: it would run Blizzard's unit checks tainted.
+- The current target style applies to any targeted nameplate. Quest styles apply to classified hostile units.
 
 **Per-Type Configuration:**
 Each highlight type (currentTarget, questObjective, questItem, worldQuest, bonusObjective) has:
@@ -95,29 +89,11 @@ Each highlight type (currentTarget, questObjective, questItem, worldQuest, bonus
 - `*Offset`: Spacing from healthbar edge
 
 **Applying Highlights:**
-See [`Highlights.lua:GetOrCreateHighlight()`](../Highlights.lua) - creates/reuses textures based on style settings.
+`addon:RenderBarHighlight(bar, style)` draws a style on any status bar; a nil style hides it. The settings preview uses it too.
 
-## Texture Pooling (Memory Management)
+## Persistent Per-Bar Parts (Memory Management)
 
-**Problem:** Creating/destroying textures every frame causes memory leaks and lag.
-
-**Solution:** Object pooling pattern
-```lua
-addon.texturePool = {}
-
-local function acquireTexture()
-    return table.remove(addon.texturePool) or UIParent:CreateTexture(...)
-end
-
-local function releaseTexture(texture)
-    texture:Hide()
-    texture:ClearAllPoints()
-    -- ... reset all properties ...
-    table.insert(addon.texturePool, texture)
-end
-```
-
-Used in [`Highlights.lua:6-33`](../Highlights.lua#L6-L33). Always release textures when clearing highlights.
+Each bar lazily creates its highlight parts once (`bar.next_highlight`: `blizzard` texture, `outline` border frame, `glow` textures) and shows or hides them on each update. There is no global texture pool and no re-creation per update. Because Blizzard pools unit frames, the number of bars stays bounded. `addon.hookedBars` tracks them all. `addon.barsByUnit` maps nameplate tokens to quest-styled bars so `NAME_PLATE_UNIT_REMOVED` can clear a style before the unit frame is reused.
 
 ## Database Migrations
 

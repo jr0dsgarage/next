@@ -3,24 +3,18 @@
 local addonName, addon = ...
 
 addon.frame = addon.frame or CreateFrame("Frame")
-addon.highlights = addon.highlights or {}
 addon.pendingUpdate = addon.pendingUpdate or false
 
 local sanitizeCommand = addon.SanitizeCommand
 
 function addon:UpdateHighlight()
-    local inInstance, instanceType = IsInInstance()
-    if inInstance then
-        if #self.highlights > 0 then
-            self:ClearHighlights()
-        end
-        return
-    end
+    local inInstance = IsInInstance()
+    -- Read by the selection border hook: when inactive, Blizzard's native border is left alone.
+    self.active = NextTargetDB.enabled and not inInstance
 
-    self:ClearHighlights()
-
-    if not NextTargetDB.enabled then
-        if NextTargetDB.debugMode then
+    if not self.active then
+        self:ClearHighlights()
+        if not inInstance and NextTargetDB.debugMode then
             self:UpdateDebugFrame({})
         end
         return
@@ -84,7 +78,8 @@ eventHandlers.NAME_PLATE_UNIT_ADDED = function(self)
     self:RequestUpdate()
 end
 
-eventHandlers.NAME_PLATE_UNIT_REMOVED = function(self)
+eventHandlers.NAME_PLATE_UNIT_REMOVED = function(self, unitToken)
+    self:ReleaseNamePlateUnit(unitToken)
     self:RequestUpdate()
 end
 

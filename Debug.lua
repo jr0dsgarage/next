@@ -283,13 +283,14 @@ local function resolveHighlightReason(info)
     if info.reason and info.reason ~= "" then
         return info.reason
     end
-    if info.highlightStyle and info.highlightStyle.baseReason then
-        return info.highlightStyle.baseReason
-    end
     return nil
 end
 
 local function resolveHighlightColor(info)
+    if info.usesTargetStyle and NextTargetDB.currentTargetColor then
+        return NextTargetDB.currentTargetColor
+    end
+
     local reason = resolveHighlightReason(info)
     if reason == "Has Quest Item" and NextTargetDB.questItemColor then
         return NextTargetDB.questItemColor
@@ -543,9 +544,8 @@ function addon:UpdateDebugFrame(results)
         local highlightExplanation
         if info.highlighted then
             local reason = info.reason or "Active highlight"
-            if info.highlightStyle and info.highlightStyle.origin == "currentTarget" then
-                local base = info.highlightStyle.baseReason or reason
-                reason = string.format("%s (current target style)", base)
+            if info.usesTargetStyle then
+                reason = string.format("%s (current target style)", reason)
             end
             local highlightOnText = buildOnText(info)
             highlightExplanation = string.format(

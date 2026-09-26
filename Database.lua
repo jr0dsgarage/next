@@ -8,7 +8,12 @@ local DEFAULTS = {
     enabled = true,
     debugMode = false,
     debugFramePosition = nil,
+    hideLevelBadgeBorder = true,
+    -- Blizzard's target/focus border on nameplates next isn't styling:
+    fixDefaultBorderOffset = false, -- redraw it evenly in Blizzard's color (next's own styles are unaffected)
+    hideDefaultBorder = false,      -- hide the health bar's (the level badge still gets the offset fix)
     currentTargetEnabled = true,
+    currentTargetAlways = true, -- false: only quest-highlighted targets get the current target style
     currentTargetColor = { r = 0, g = 1, b = 0, a = 0.8 },
     currentTargetThickness = 2,
     currentTargetOffset = 0,

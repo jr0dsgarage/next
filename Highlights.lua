@@ -3,259 +3,556 @@ local addonName, addon = ...
 
 local wipeTable = addon.WipeTable
 
--- Texture pooling to avoid memory leaks from constant create/destroy
-addon.texturePool = addon.texturePool or {}
+-- Blizzard's nameplate health bar ships a `selectedBorder` texture (this atlas) that it shows for the
+-- target and focus via NamePlateHealthBarMixin:UpdateSelectionBorder. We hook that method per bar so
+-- whenever Blizzard refreshes the border we can hide it and draw our own highlight in its place.
+local BLIZZARD_BORDER_ATLAS = "UI-HUD-Nameplates-Selected"
+local BORDER_TEMPLATE = "NamePlateFullBorderTemplate"
+-- Used when a bar has no native selectedBorder to anchor to (settings preview, Classic nameplate style).
+local FALLBACK_BLIZZARD_INSET = 4
+-- next's "Blizzard" style is pulled in by this much from Blizzard's border: it's the baseline a style's
+-- Offset of 0 means. renderBlizzard is the only place geometry relative to a native border is adjusted.
+-- Blizzard's own textures are never moved (nameplate regions are restricted, so we can't read their
+-- anchors, and their layout varies between client builds).
+local DEFAULT_BORDER_SHRINK = 1
+local NO_EDGE_ADJUST = { left = 0, top = 0, right = 0, bottom = 0 }
+-- "Fix Default border offset": Blizzard's target atlas (UI-HUD-CoolDownManager-Selected-yellow) reaches
+-- 1px too far out on the top and sides (measured: 2px gaps left/top vs 1px bottom; with left/top
+-- corrected, those measure an even 1px). Right assumed to mirror left; pull those edges in.
+local DEFAULT_BORDER_EDGE_ADJUST = { left = 2, top = 3, right = 1, bottom = 1 }
+-- The level badge's border is laid out differently: with the health bar's correction applied, its
+-- bottom still measured ~3px from the badge box vs 1px on the other sides.
+local LEVEL_BADGE_EDGE_ADJUST = { left = 1, top = 4, right = 1, bottom = 2 }
+local GLOW_SIZE = 16
 
-local function acquireTexture()
-    local texture = table.remove(addon.texturePool)
-    if not texture then
-        texture = UIParent:CreateTexture(nil, "OVERLAY")
-        texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    end
-    return texture
-end
+-- Every health bar we've hooked (bars live in Blizzard's unit frame pool, so this stays small).
+addon.hookedBars = addon.hookedBars or {}
+-- Nameplate unit token -> health bar currently carrying a quest style, so removal can clear it immediately.
+addon.barsByUnit = addon.barsByUnit or {}
+-- Native border texture -> the color Blizzard last tinted it, captured by hooking SetVertexColor
+-- (reading it back from a restricted region isn't reliable).
+addon.nativeColors = addon.nativeColors or setmetatable({}, { __mode = "k" })
+addon.active = addon.active or false
 
-local function releaseTexture(texture)
-    if not texture then
+local function captureNativeColor(texture)
+    if not texture or texture.next_colorHooked then
         return
     end
-    texture:Hide()
-    texture:ClearAllPoints()
-    texture:SetParent(nil)
-    texture:SetVertexColor(1, 1, 1, 1)
-    texture:SetBlendMode("BLEND")
-    texture:SetTexCoord(0, 1, 0, 1)
-    texture:SetDrawLayer("OVERLAY")
-    texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    texture:SetSize(0, 0)
-    table.insert(addon.texturePool, texture)
+    texture.next_colorHooked = true
+    hooksecurefunc(texture, "SetVertexColor", function(self, r, g, b)
+        if type(r) == "number" then
+            addon.nativeColors[self] = { r = r, g = g, b = b }
+        end
+    end)
+end
+
+local function normalizeMode(mode)
+    if mode == "border" or not mode then
+        return "outline"
+    end
+    return mode
 end
 
 local function resolveHealthBar(plate)
-    if not plate then
+    local unitFrame = plate and plate.UnitFrame
+    if not unitFrame then
         return nil
     end
-
-    -- Check cache first
-    if plate.next_healthBar and plate.next_healthBar.IsVisible and plate.next_healthBar:IsVisible() then
-        return plate.next_healthBar
-    end
-
-    -- Try various known healthbar locations in order of likelihood
-    local healthBarPaths = {
-        -- Midnight beta / TWW structures
-        function() return plate.UnitFrame and plate.UnitFrame.healthBar end,
-        function() return plate.UnitFrame and plate.UnitFrame.healthBars and plate.UnitFrame.healthBars.healthBar end,
-        function() return plate.UnitFrame and plate.UnitFrame.HealthBarsContainer and plate.UnitFrame.HealthBarsContainer.healthBar end,
-        -- Legacy/fallback structure
-        function() return plate.healthBar end,
-        -- Additional possible locations for future-proofing
-        function() return plate.UnitFrame and plate.UnitFrame.Health end,
-        function() return plate.UnitFrame and plate.UnitFrame.HealthBar end,
-    }
-
-    for _, pathFunc in ipairs(healthBarPaths) do
-        local success, healthBar = pcall(pathFunc)
-        if success and healthBar and healthBar.GetObjectType then
-            -- Verify it's actually a frame before returning
-            local isFrame = pcall(function() return healthBar:GetObjectType() end)
-            if isFrame then
-                -- Cache the result on the plate frame
-                plate.next_healthBar = healthBar
-                return healthBar
-            end
-        end
-    end
-
-    -- Log if we can't find healthbar (helps debug structure changes)
-    if addon.debugMode or NextTargetDB.debugMode then
-        local unitToken = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
-        local unitName = unitToken and UnitName(unitToken) or "unknown"
-        print(string.format("[next] Warning: Could not resolve healthbar for %s", unitName))
-    end
-
-    return nil
+    local container = unitFrame.HealthBarsContainer
+    return (container and container.healthBar) or unitFrame.healthBar
 end
 
 local function acquireNameplate(unitData)
     if unitData.frame then
         return unitData.frame
     end
-    
-    -- Safely get nameplate with fallbacks
     if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
-        local success, plate = pcall(C_NamePlate.GetNamePlateForUnit, unitData.unit)
-        if success and plate then
-            return plate
-        end
+        return C_NamePlate.GetNamePlateForUnit(unitData.unit)
     end
-    
     return nil
 end
 
--- Shared helper to create and configure a basic texture
-local function createStyledTexture(self, healthBar, color)
-    local texture = acquireTexture()
-    texture:SetParent(healthBar)
-    texture:SetVertexColor(color.r, color.g, color.b, color.a or 1)
-    texture:Show()
-    table.insert(self.highlights, texture)
-    return texture
+local function isBarForUnit(bar, unitToken)
+    local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(unitToken)
+    return plate ~= nil and resolveHealthBar(plate) == bar
 end
 
-local function applyOutlineHighlight(self, healthBar, style, plate)
-    local color = style.color
-    local thickness = style.thickness or 2
-    local offset = style.offset or 1
-
-    local function createTexture(point, relativePoint, xOffset, yOffset, width, height)
-        local texture = createStyledTexture(self, healthBar, color)
-        texture:SetPoint(point, healthBar, relativePoint, math.floor(xOffset), math.floor(yOffset))
-        if width then
-            texture:SetWidth(math.floor(width))
-        end
-        if height then
-            texture:SetHeight(math.floor(height))
-        end
-        return texture
+local function usesNativeBorder(bar)
+    if not bar.selectedBorder then
+        return false
     end
-
-    local function createCorner(point, relativePoint, xOffset, yOffset)
-        local texture = createStyledTexture(self, healthBar, color)
-        texture:SetSize(thickness, thickness)
-        texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
-    end
-
-    createTexture("BOTTOMLEFT", "TOPLEFT", -offset, offset, nil, thickness)
-    self.highlights[#self.highlights]:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
-
-    createTexture("TOPLEFT", "BOTTOMLEFT", -offset, -offset, nil, thickness)
-    self.highlights[#self.highlights]:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
-
-    createTexture("TOPRIGHT", "TOPLEFT", -offset, offset, thickness, nil)
-    self.highlights[#self.highlights]:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
-
-    createTexture("TOPLEFT", "TOPRIGHT", offset, offset, thickness, nil)
-    self.highlights[#self.highlights]:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
-
-    createCorner("BOTTOMRIGHT", "TOPLEFT", -offset, offset)
-    createCorner("BOTTOMLEFT", "TOPRIGHT", offset, offset)
-    createCorner("TOPRIGHT", "BOTTOMLEFT", -offset, -offset)
-    createCorner("TOPLEFT", "BOTTOMRIGHT", offset, -offset)
+    -- Blizzard turns the selected border off for the Classic nameplate style.
+    return not bar.ShouldUseSelectedBorder or bar:ShouldUseSelectedBorder()
 end
 
-local function applyBlizzardHighlight(self, healthBar, style, plate)
-    local color = style.color
-    local offset = math.floor((style.offset or 0) + 4)  -- Remap: user's 0 = actual 4 (Blizzard's size)
+-- Border frames -------------------------------------------------------------
 
-    local texture = createStyledTexture(self, healthBar, color)
-    texture:SetDrawLayer("OVERLAY", 0)
-    texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
-    texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
-    
-    -- Reset texture coordinates in case this texture was previously used for something else
-    texture:SetTexCoord(0, 1, 0, 1)
-    texture:SetBlendMode("BLEND")
-    
-    -- Use Blizzard's nameplate selection texture (has rounded corners)
-    if texture.SetAtlas then
-        local success = pcall(function() 
-            texture:SetAtlas("UI-HUD-Nameplates-Selected", true) 
-        end)
-        if not success then
-            -- Fallback to simple white texture
-            texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-        end
+-- Mirrors NamePlateBorderTemplateMixin in case the Blizzard template is ever renamed or removed.
+local FallbackBorderMixin = {}
+
+function FallbackBorderMixin:SetVertexColor(r, g, b, a)
+    for _, texture in ipairs(self.Textures) do
+        texture:SetVertexColor(r, g, b, a)
+    end
+end
+
+function FallbackBorderMixin:SetBorderSizes(borderSize, borderSizeMinPixels)
+    self.borderSize = borderSize
+    self.borderSizeMinPixels = borderSizeMinPixels
+end
+
+function FallbackBorderMixin:UpdateSizes()
+    local size = self.borderSize or 1
+    local minPixels = self.borderSizeMinPixels or 1
+
+    PixelUtil.SetWidth(self.Left, size, minPixels)
+    PixelUtil.SetPoint(self.Left, "TOPRIGHT", self, "TOPLEFT", 0, size, 0, minPixels)
+    PixelUtil.SetPoint(self.Left, "BOTTOMRIGHT", self, "BOTTOMLEFT", 0, -size, 0, minPixels)
+
+    PixelUtil.SetWidth(self.Right, size, minPixels)
+    PixelUtil.SetPoint(self.Right, "TOPLEFT", self, "TOPRIGHT", 0, size, 0, minPixels)
+    PixelUtil.SetPoint(self.Right, "BOTTOMLEFT", self, "BOTTOMRIGHT", 0, -size, 0, minPixels)
+
+    PixelUtil.SetHeight(self.Bottom, size, minPixels)
+    PixelUtil.SetPoint(self.Bottom, "TOPLEFT", self, "BOTTOMLEFT", 0, 0)
+    PixelUtil.SetPoint(self.Bottom, "TOPRIGHT", self, "BOTTOMRIGHT", 0, 0)
+
+    PixelUtil.SetHeight(self.Top, size, minPixels)
+    PixelUtil.SetPoint(self.Top, "BOTTOMLEFT", self, "TOPLEFT", 0, 0)
+    PixelUtil.SetPoint(self.Top, "BOTTOMRIGHT", self, "TOPRIGHT", 0, 0)
+end
+
+local function templateExists(name)
+    return C_XMLUtil and C_XMLUtil.GetTemplateInfo and C_XMLUtil.GetTemplateInfo(name) ~= nil
+end
+
+local function createOutlineFrame(bar)
+    local frame
+    if templateExists(BORDER_TEMPLATE) then
+        frame = CreateFrame("Frame", nil, bar, BORDER_TEMPLATE)
     else
-        texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    end
-end
-
-local function applyGlowHighlight(self, healthBar, style, plate)
-    local color = style.color
-    local offset = math.floor((style.offset or 0) - 4)  -- Reduce offset so glow sits tighter to healthbar
-
-    -- Helper to create a glow texture piece using atlas
-    local function createGlowTexture(atlasName, useAtlasSize)
-        local texture = createStyledTexture(self, healthBar, color)
-        texture:SetDrawLayer("OVERLAY", 1)
-        texture:SetBlendMode("ADD")
-        
-        -- Try to set the atlas
-        if texture.SetAtlas then
-            local success = pcall(function() 
-                texture:SetAtlas(atlasName, useAtlasSize or false)
-            end)
-            if not success then
-                texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-            end
-        else
-            texture:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+        frame = CreateFrame("Frame", nil, bar)
+        frame.Textures = {}
+        for _, key in ipairs({ "Left", "Right", "Top", "Bottom" }) do
+            local texture = frame:CreateTexture()
+            texture:SetColorTexture(1, 1, 1, 1)
+            frame[key] = texture
+            frame.Textures[#frame.Textures + 1] = texture
         end
-        
-        return texture
+        Mixin(frame, FallbackBorderMixin)
     end
 
-    local edgeAtlases = {
-        top = "_ButtonGreenGlow-NineSlice-EdgeTop",
-        bottom = "_ButtonGreenGlow-NineSlice-EdgeBottom", 
-        left = "!ButtonGreenGlow-NineSlice-EdgeLeft",
-        right = "!ButtonGreenGlow-NineSlice-EdgeRight",
-    }
-    
-    local cornerAtlas = "ButtonGreenGlow-NineSlice-Corner"
+    -- The template draws at BACKGROUND -8, beneath the bar's own background art; lift it above.
+    for _, texture in ipairs(frame.Textures) do
+        texture:SetDrawLayer("OVERLAY", 0)
+    end
+    return frame
+end
 
-    -- Create edges
-    local top = createGlowTexture(edgeAtlases.top, false)
-    top:SetPoint("BOTTOMLEFT", healthBar, "TOPLEFT", -offset, offset)
-    top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
-    top:SetHeight(16)
-    top:SetTexCoord(1, 0, 0, 1)  -- Flip horizontally
+-- Renderers -----------------------------------------------------------------
+-- Each bar keeps its own persistent parts (created on first use) that are shown or hidden per update.
 
-    local bottom = createGlowTexture(edgeAtlases.bottom, false)
-    bottom:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", -offset, -offset)
-    bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
-    bottom:SetHeight(16)
-    bottom:SetTexCoord(1, 0, 0, 1)  -- Flip horizontally
+local function getParts(bar)
+    local parts = bar.next_highlight
+    if not parts then
+        parts = {}
+        bar.next_highlight = parts
+    end
+    return parts
+end
 
-    -- Always show left/right edges
-    local left = createGlowTexture(edgeAtlases.left, false)
-    left:SetPoint("TOPRIGHT", healthBar, "TOPLEFT", -offset, offset)
-    left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
-    left:SetWidth(16)
-    left:SetTexCoord(0, 1, 1, 0)  -- Flip vertically
-
-    local right = createGlowTexture(edgeAtlases.right, false)
-    right:SetPoint("TOPLEFT", healthBar, "TOPRIGHT", offset, offset)
-    right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
-    right:SetWidth(16)
-    right:SetTexCoord(0, 1, 1, 0)  -- Flip vertically
-
-    -- Create corners with proper rotation via texcoords
-    local cornerSize = 16
-    local cornerConfigs = {
-        { point = "BOTTOMRIGHT", relPoint = "TOPLEFT", x = -offset, y = offset, hFlip = false, vFlip = false },      -- TopLeft
-        { point = "BOTTOMLEFT", relPoint = "TOPRIGHT", x = offset, y = offset, hFlip = true, vFlip = false },      -- TopRight
-        { point = "TOPRIGHT", relPoint = "BOTTOMLEFT", x = -offset, y = -offset, hFlip = false, vFlip = true },      -- BottomLeft
-        { point = "TOPLEFT", relPoint = "BOTTOMRIGHT", x = offset, y = -offset, hFlip = true, vFlip = true },      -- BottomRight
-    }
-
-    for _, config in ipairs(cornerConfigs) do
-        local tex = createGlowTexture(cornerAtlas, true)
-        tex:SetSize(cornerSize, cornerSize)
-        tex:SetPoint(config.point, healthBar, config.relPoint, config.x, config.y)
-        
-        local minX, maxX = config.hFlip and 1 or 0, config.hFlip and 0 or 1
-        local minY, maxY = config.vFlip and 1 or 0, config.vFlip and 0 or 1
-        tex:SetTexCoord(minX, maxX, minY, maxY)
+local function hideParts(parts)
+    if parts.blizzard then
+        parts.blizzard:Hide()
+    end
+    if parts.outline then
+        parts.outline:Hide()
+    end
+    if parts.glow then
+        for _, texture in ipairs(parts.glow) do
+            texture:Hide()
+        end
     end
 end
 
-local highlightHandlers = {
-    outline = applyOutlineHighlight,
-    blizzard = applyBlizzardHighlight,
-    glow = applyGlowHighlight,
+-- Renderers take (host, parts, style, r, g, b, a, geo): parts are created on `host`, and `geo` says
+-- what to wrap. geo.frame is the region outline/glow surround, geo.native is Blizzard's border for that
+-- surface (nil when there isn't one), and geo.atlas is the atlas the "Blizzard" style draws with.
+
+local function renderBlizzard(host, parts, style, r, g, b, a, geo)
+    local texture = parts.blizzard
+    if not texture then
+        texture = host:CreateTexture(nil, "OVERLAY", nil, 0)
+        parts.blizzard = texture
+    end
+
+    -- The redrawn default border passes Blizzard's own atlas; our styles use the plain tintable one.
+    local atlas = style.atlas or geo.atlas or BLIZZARD_BORDER_ATLAS
+    if texture.next_atlas ~= atlas then
+        texture:SetAtlas(atlas)
+        texture.next_atlas = atlas
+    end
+
+    -- Anchor to Blizzard's own border so we inherit its exact geometry (it re-anchors on every resize).
+    -- The redrawn default border passes nativeInset = 0 to sit exactly on it.
+    local anchor, inset = geo.frame, FALLBACK_BLIZZARD_INSET
+    -- Per-edge nudges toward the bar (positive = inward), applied on top of the offset.
+    local adjust = NO_EDGE_ADJUST
+    if geo.native then
+        anchor, inset = geo.native, style.nativeInset or -DEFAULT_BORDER_SHRINK
+        adjust = style.nativeEdgeAdjust or NO_EDGE_ADJUST
+    end
+    local offset = math.floor(style.offset or 0) + inset
+
+    texture:ClearAllPoints()
+    texture:SetPoint("TOPLEFT", anchor, "TOPLEFT", -offset + adjust.left, offset - adjust.top)
+    texture:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", offset - adjust.right, -offset + adjust.bottom)
+    texture:SetVertexColor(r, g, b, a)
+    texture:Show()
+end
+
+local function renderOutline(host, parts, style, r, g, b, a, geo)
+    local border = parts.outline
+    if not border then
+        border = createOutlineFrame(host)
+        parts.outline = border
+    end
+
+    local frame = geo.frame
+    local offset = style.offset or 0
+    local thickness = style.thickness or 2
+
+    border:ClearAllPoints()
+    border:SetPoint("TOPLEFT", frame, "TOPLEFT", -offset, offset)
+    border:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", offset, -offset)
+    border:SetBorderSizes(thickness, 1)
+    border:UpdateSizes()
+    border:SetVertexColor(r, g, b, a)
+    border:Show()
+end
+
+-- Order matters: edges first, then corners (TopLeft, TopRight, BottomLeft, BottomRight).
+local GLOW_PIECES = {
+    { atlas = "_ButtonGreenGlow-NineSlice-EdgeTop", texCoord = { 1, 0, 0, 1 } },
+    { atlas = "_ButtonGreenGlow-NineSlice-EdgeBottom", texCoord = { 1, 0, 0, 1 } },
+    { atlas = "!ButtonGreenGlow-NineSlice-EdgeLeft", texCoord = { 0, 1, 1, 0 } },
+    { atlas = "!ButtonGreenGlow-NineSlice-EdgeRight", texCoord = { 0, 1, 1, 0 } },
+    { atlas = "ButtonGreenGlow-NineSlice-Corner", texCoord = { 0, 1, 0, 1 } },
+    { atlas = "ButtonGreenGlow-NineSlice-Corner", texCoord = { 1, 0, 0, 1 } },
+    { atlas = "ButtonGreenGlow-NineSlice-Corner", texCoord = { 0, 1, 1, 0 } },
+    { atlas = "ButtonGreenGlow-NineSlice-Corner", texCoord = { 1, 0, 1, 0 } },
 }
+
+local function renderGlow(host, parts, style, r, g, b, a, geo)
+    local bar = geo.frame
+    local glow = parts.glow
+    if not glow then
+        glow = {}
+        for index, piece in ipairs(GLOW_PIECES) do
+            local texture = host:CreateTexture(nil, "OVERLAY", nil, 1)
+            texture:SetAtlas(piece.atlas, index > 4)
+            texture:SetBlendMode("ADD")
+            texture:SetTexCoord(unpack(piece.texCoord))
+            glow[index] = texture
+        end
+        parts.glow = glow
+    end
+
+    -- Negative so the glow sits tighter to the health bar.
+    local offset = math.floor((style.offset or 0) - 4)
+    local top, bottom, left, right, topLeft, topRight, bottomLeft, bottomRight = unpack(glow)
+
+    for _, texture in ipairs(glow) do
+        texture:ClearAllPoints()
+        texture:SetVertexColor(r, g, b, a)
+        texture:Show()
+    end
+
+    top:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", -offset, offset)
+    top:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", offset, offset)
+    top:SetHeight(GLOW_SIZE)
+
+    bottom:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", -offset, -offset)
+    bottom:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", offset, -offset)
+    bottom:SetHeight(GLOW_SIZE)
+
+    left:SetPoint("TOPRIGHT", bar, "TOPLEFT", -offset, offset)
+    left:SetPoint("BOTTOMRIGHT", bar, "BOTTOMLEFT", -offset, -offset)
+    left:SetWidth(GLOW_SIZE)
+
+    right:SetPoint("TOPLEFT", bar, "TOPRIGHT", offset, offset)
+    right:SetPoint("BOTTOMLEFT", bar, "BOTTOMRIGHT", offset, -offset)
+    right:SetWidth(GLOW_SIZE)
+
+    topLeft:SetSize(GLOW_SIZE, GLOW_SIZE)
+    topLeft:SetPoint("BOTTOMRIGHT", bar, "TOPLEFT", -offset, offset)
+    topRight:SetSize(GLOW_SIZE, GLOW_SIZE)
+    topRight:SetPoint("BOTTOMLEFT", bar, "TOPRIGHT", offset, offset)
+    bottomLeft:SetSize(GLOW_SIZE, GLOW_SIZE)
+    bottomLeft:SetPoint("TOPRIGHT", bar, "BOTTOMLEFT", -offset, -offset)
+    bottomRight:SetSize(GLOW_SIZE, GLOW_SIZE)
+    bottomRight:SetPoint("TOPLEFT", bar, "BOTTOMRIGHT", offset, -offset)
+end
+
+local renderers = {
+    outline = renderOutline,
+    blizzard = renderBlizzard,
+    glow = renderGlow,
+}
+
+local function barGeometry(bar)
+    return {
+        frame = bar,
+        native = usesNativeBorder(bar) and bar.selectedBorder or nil,
+        atlas = BLIZZARD_BORDER_ATLAS,
+    }
+end
+
+-- The level-difference badge beside the health bar (newer clients give it its own selectedBorder).
+local function badgeGeometry(badge)
+    return {
+        frame = badge.playerLevelDiffIcon or badge,
+        native = badge.selectedBorder,
+        atlas = BLIZZARD_BORDER_ATLAS,
+    }
+end
+
+local function renderSurface(host, style, geo)
+    local parts = getParts(host)
+    hideParts(parts)
+    if not style then
+        return
+    end
+
+    local color = style.color or {}
+    local renderer = renderers[normalizeMode(style.mode)] or renderOutline
+    renderer(host, parts, style, color.r or 1, color.g or 1, color.b or 1, color.a or 1, geo)
+end
+
+-- Draws `style` on any status bar (live nameplate or the settings preview); nil style hides it.
+function addon:RenderBarHighlight(bar, style)
+    renderSurface(bar, style, barGeometry(bar))
+end
+
+-- Nameplate bar state ---------------------------------------------------------
+
+local function currentTargetStyle()
+    if not NextTargetDB.currentTargetEnabled then
+        return nil
+    end
+    return {
+        color = NextTargetDB.currentTargetColor,
+        thickness = NextTargetDB.currentTargetThickness,
+        offset = NextTargetDB.currentTargetOffset,
+        mode = normalizeMode(NextTargetDB.currentTargetStyle or addon:GetDefault("currentTargetStyle")),
+        origin = "currentTarget",
+    }
+end
+
+-- "Fix Default border offset": Blizzard's own border redrawn by us with its atlas's uneven padding
+-- corrected (DEFAULT_BORDER_EDGE_ADJUST). The atlas and tint are copied per surface from that
+-- surface's native border (see nativeCopyStyle), so only the geometry differs from Blizzard's.
+local DEFAULT_BORDER_STYLE = {
+    offset = 0,
+    nativeInset = 0,
+    nativeEdgeAdjust = DEFAULT_BORDER_EDGE_ADJUST,
+    mode = "blizzard",
+    origin = "default",
+}
+
+-- Blizzard's current atlas on a native border (e.g. "UI-HUD-CoolDownManager-Selected-yellow"; the color
+-- is baked in). GetAtlas is readable on restricted regions, unlike anchors; nil if it can't be read.
+local function nativeAtlas(native)
+    local ok, atlas = pcall(native.GetAtlas, native)
+    if ok and type(atlas) == "string" and atlas ~= "" then
+        return atlas
+    end
+    return nil
+end
+
+-- DEFAULT_BORDER_STYLE made to look exactly like `native`: its atlas, plus any tint Blizzard applied
+-- (untinted when Blizzard never calls SetVertexColor). Nil if the atlas can't be read, in which case
+-- Blizzard's own border is left showing.
+local function nativeCopyStyle(style, native)
+    local atlas = nativeAtlas(native)
+    if not atlas then
+        return nil
+    end
+    local color = addon.nativeColors[native] or { r = 1, g = 1, b = 1 }
+    return {
+        color = { r = color.r, g = color.g, b = color.b, a = 1 },
+        atlas = atlas,
+        offset = style.offset,
+        nativeInset = style.nativeInset,
+        nativeEdgeAdjust = style.nativeEdgeAdjust,
+        mode = style.mode,
+        origin = style.origin,
+    }
+end
+
+local function isSelectedBar(bar)
+    return isBarForUnit(bar, "target") or isBarForUnit(bar, "focus")
+end
+
+-- Returns the style to draw on the health bar (or nil), whether Blizzard's health bar border should be
+-- hidden, and the style for the level badge. The badge follows the bar except that "Disable Default
+-- Health Bar border" only affects the bar: the badge still gets the redrawn default border.
+local function resolveBarStyle(bar)
+    if not addon.active then
+        return nil, false, nil
+    end
+
+    local targetAllowed = NextTargetDB.currentTargetAlways or bar.next_questStyle ~= nil
+    if targetAllowed and isBarForUnit(bar, "target") then
+        local targetStyle = currentTargetStyle()
+        if targetStyle then
+            return targetStyle, true, targetStyle
+        end
+    end
+    if bar.next_questStyle then
+        return bar.next_questStyle, true, bar.next_questStyle
+    end
+
+    -- Nothing of ours on this bar; optionally redraw and/or hide Blizzard's default border.
+    local defaultStyle
+    if NextTargetDB.fixDefaultBorderOffset and usesNativeBorder(bar) and isSelectedBar(bar) then
+        defaultStyle = DEFAULT_BORDER_STYLE
+    end
+    if NextTargetDB.hideDefaultBorder then
+        return nil, true, defaultStyle
+    end
+    return defaultStyle, defaultStyle ~= nil, defaultStyle
+end
+
+-- Shows Blizzard's border again after we stop owning a bar. We only ever Hide() it (never recolor it),
+-- so restoring is just recomputing its shown state; we avoid calling Blizzard's UpdateSelectionBorder
+-- from addon code so its unit checks never run tainted.
+local function restoreNativeBorder(bar)
+    if not usesNativeBorder(bar) then
+        return
+    end
+    bar.selectedBorder:SetShown(isSelectedBar(bar))
+end
+
+-- The level badge mirrors its health bar (see resolveBarStyle): same style drawn on the badge's own
+-- border, or nothing at all when "Disable Level Badge border" is on. Blizzard only toggles that
+-- border's shown state, so we hide it via alpha instead of fighting its updates.
+local function refreshBadge(bar, style)
+    local unitFrame = bar.next_unitFrame
+    local badge = unitFrame and unitFrame.PlayerLevelDiffFrame
+    local native = badge and badge.selectedBorder
+    if not native then
+        return
+    end
+    captureNativeColor(native)
+
+    local badgeStyle
+    if addon.active and not NextTargetDB.hideLevelBadgeBorder and style then
+        badgeStyle = style
+        if style.origin == "default" then
+            badgeStyle = nativeCopyStyle(style, native)
+            if badgeStyle then
+                badgeStyle.nativeEdgeAdjust = LEVEL_BADGE_EDGE_ADJUST
+            end
+        end
+    end
+
+    renderSurface(badge, badgeStyle, badgeGeometry(badge))
+
+    local hideNative = addon.active and (NextTargetDB.hideLevelBadgeBorder or badgeStyle ~= nil)
+    native:SetAlpha(hideNative and 0 or 1)
+end
+
+-- fromHook: Blizzard just ran UpdateSelectionBorder, so its own border state is already correct.
+local function refreshBar(bar, fromHook)
+    local style, hideNative, badgeStyle = resolveBarStyle(bar)
+    refreshBadge(bar, badgeStyle)
+    if style and style.origin == "default" then
+        -- If Blizzard's atlas can't be read we can't copy it faithfully; leave Blizzard's showing.
+        style = nativeCopyStyle(style, bar.selectedBorder)
+        if not style then
+            hideNative = false
+        end
+    end
+    addon:RenderBarHighlight(bar, style)
+
+    if hideNative then
+        if bar.selectedBorder then
+            bar.selectedBorder:Hide()
+        end
+        bar.next_hidNativeBorder = true
+    elseif bar.next_hidNativeBorder then
+        bar.next_hidNativeBorder = false
+        if not fromHook then
+            restoreNativeBorder(bar)
+        end
+    end
+end
+
+local function onSelectionBorderUpdated(bar)
+    refreshBar(bar, true)
+end
+
+local function ensureHooked(bar)
+    if addon.hookedBars[bar] then
+        return
+    end
+    addon.hookedBars[bar] = true
+    captureNativeColor(bar.selectedBorder)
+    if type(bar.UpdateSelectionBorder) == "function" then
+        hooksecurefunc(bar, "UpdateSelectionBorder", onSelectionBorderUpdated)
+    end
+end
+
+-- questStyles: bar -> quest style; barTokens: nameplate unit token -> bar.
+local function syncBars(questStyles, barTokens)
+    if C_NamePlate and C_NamePlate.GetNamePlates then
+        -- Hook every visible plate so the current target style applies to non-quest units too.
+        for _, plate in ipairs(C_NamePlate.GetNamePlates()) do
+            local bar = resolveHealthBar(plate)
+            if bar then
+                -- A bar always belongs to the same pooled unit frame; remember it to reach the level badge.
+                bar.next_unitFrame = bar.next_unitFrame or plate.UnitFrame
+                ensureHooked(bar)
+            end
+        end
+    end
+    for bar in pairs(questStyles) do
+        ensureHooked(bar)
+    end
+
+    for bar in pairs(addon.hookedBars) do
+        bar.next_questStyle = questStyles[bar]
+        refreshBar(bar)
+    end
+
+    wipeTable(addon.barsByUnit)
+    for token, bar in pairs(barTokens) do
+        addon.barsByUnit[token] = bar
+    end
+end
+
+local function determineStyle(result)
+    local configMap = {
+        ["Has Quest Item"] = "questItem",
+        ["Bonus Objective"] = "bonusObjective",
+        ["World Quest"] = "worldQuest",
+        ["Quest Objective"] = "questObjective",
+    }
+
+    local prefix = configMap[result.reason]
+    if not prefix or not NextTargetDB[prefix .. "Enabled"] then
+        return nil
+    end
+
+    return {
+        color = NextTargetDB[prefix .. "Color"],
+        thickness = NextTargetDB[prefix .. "Thickness"],
+        offset = NextTargetDB[prefix .. "Offset"],
+        mode = normalizeMode(NextTargetDB[prefix .. "Style"] or addon:GetDefault(prefix .. "Style")),
+        origin = prefix,
+    }
+end
 
 local function isCurrentTarget(result)
     if not result or not result.unit then
@@ -276,66 +573,30 @@ local function isCurrentTarget(result)
     return false
 end
 
-local function determineStyle(result)
-    local baseStyle
-
-    local configMap = {
-        ["Has Quest Item"] = { prefix = "questItem" },
-        ["Bonus Objective"] = { prefix = "bonusObjective" },
-        ["World Quest"] = { prefix = "worldQuest" },
-        ["Quest Objective"] = { prefix = "questObjective" },
-    }
-
-    local config = configMap[result.reason]
-    if config then
-        local prefix = config.prefix
-        if NextTargetDB[prefix .. "Enabled"] then
-             baseStyle = {
-                color = NextTargetDB[prefix .. "Color"],
-                thickness = NextTargetDB[prefix .. "Thickness"],
-                offset = NextTargetDB[prefix .. "Offset"],
-                mode = NextTargetDB[prefix .. "Style"] or addon:GetDefault(prefix .. "Style") or "outline",
-                origin = prefix,
-            }
-        end
+function addon:ClearHighlights()
+    for bar in pairs(self.hookedBars) do
+        bar.next_questStyle = nil
+        refreshBar(bar)
     end
-
-    if not baseStyle then
-        return nil
-    end
-
-    if baseStyle.mode == "border" then
-        baseStyle.mode = "outline"
-    end
-
-    if isCurrentTarget(result) and NextTargetDB.currentTargetEnabled then
-        local mode = NextTargetDB.currentTargetStyle or addon:GetDefault("currentTargetStyle") or (baseStyle and baseStyle.mode) or "outline"
-        if mode == "border" then
-            mode = "outline"
-        end
-        return {
-            color = NextTargetDB.currentTargetColor,
-            thickness = NextTargetDB.currentTargetThickness,
-            offset = NextTargetDB.currentTargetOffset,
-            mode = mode,
-            origin = "currentTarget",
-            baseReason = result.reason,
-        }
-    end
-
-    return baseStyle
+    wipeTable(self.barsByUnit)
 end
 
-function addon:ClearHighlights()
-    for _, texture in ipairs(self.highlights) do
-        releaseTexture(texture)
+-- Called on NAME_PLATE_UNIT_REMOVED so a pooled unit frame never carries a stale quest style to its next unit.
+function addon:ReleaseNamePlateUnit(unitToken)
+    local bar = unitToken and self.barsByUnit[unitToken]
+    if not bar then
+        return
     end
-    wipeTable(self.highlights)
+    self.barsByUnit[unitToken] = nil
+    bar.next_questStyle = nil
+    refreshBar(bar)
 end
 
 function addon:CollectHighlights()
     local relevantUnits = self:GetRelevantUnits()
     local results = {}
+    local questStyles = {}
+    local barTokens = {}
 
     for _, unitData in ipairs(relevantUnits) do
         local classification = self:ClassifyUnit(unitData)
@@ -346,6 +607,8 @@ function addon:CollectHighlights()
             results[#results + 1] = classification
 
             local style = determineStyle(classification)
+            classification.usesTargetStyle = classification.isCurrentTarget and NextTargetDB.currentTargetEnabled
+                and (NextTargetDB.currentTargetAlways or style ~= nil)
             if style then
                 classification.highlighted = true
                 if classification.note == "Disabled in settings" then
@@ -353,26 +616,26 @@ function addon:CollectHighlights()
                 end
                 classification.highlightStyle = style
                 local plate = acquireNameplate(classification)
-                local healthBar = resolveHealthBar(plate)
-                if healthBar then
-                    local mode = style.mode or "outline"
-                    if mode == "border" then
-                        mode = "outline"
-                        style.mode = "outline"
+                local bar = resolveHealthBar(plate)
+                if bar then
+                    questStyles[bar] = style
+                    local token = plate and plate.namePlateUnitToken
+                    if token then
+                        barTokens[token] = bar
                     end
-                    local handler = highlightHandlers[mode] or applyOutlineHighlight
-                    handler(self, healthBar, style)
                 end
             elseif classification.reason then
                 if not classification.note then
                     classification.note = "Disabled in settings"
                 end
                 classification.suppressedReason = classification.reason
-            elseif classification.isCurrentTarget and NextTargetDB.currentTargetEnabled and not classification.note then
-                classification.note = "Current target without quest highlight"
+            elseif classification.usesTargetStyle and not classification.note then
+                classification.note = "Current target (target style only)"
             end
         end
     end
+
+    syncBars(questStyles, barTokens)
 
     return results
 end

@@ -28,9 +28,7 @@ scrollFrame:SetScrollChild(content)
 local ui = {
     built = false,
     highlightRows = {},
-    preview = {
-        highlights = {},
-    },
+    preview = {},
 }
 
 local highlightOptions = {
@@ -64,242 +62,28 @@ end
 
 local WHITE_TEXTURE = "Interface\\BUTTONS\\WHITE8X8"
 local previewClickSound = SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON
-local max = math.max
-local wipe = wipe
 
 local updatePreview
 local selectPreviewOption
 
-local function ensurePreviewHighlights()
-    if not ui.preview.highlights then
-        ui.preview.highlights = {}
-    end
-end
-
-local function clearPreviewHighlights()
-    if not ui.preview or not ui.preview.highlights then
-        return
-    end
-    for _, texture in ipairs(ui.preview.highlights) do
-        texture:Hide()
-        texture:SetParent(nil)
-    end
-    wipe(ui.preview.highlights)
-end
-
-local function applyOutlinePreview(style)
-    if not ui.preview or not ui.preview.healthBar then
-        return
-    end
-
-    ensurePreviewHighlights()
-
-    local healthBar = ui.preview.healthBar
-    local color = style.color or {}
-    local r = color.r or 1
-    local g = color.g or 1
-    local b = color.b or 1
-    local a = color.a or 1
-    if not style.enabled then
-        a = a * 0.35
-    end
-
-    local thickness = max(1, style.thickness or 1)
-    local offset = max(0, style.offset or 0)
-
-    local function addTexture(point, relativePoint, xOffset, yOffset, width, height)
-        local texture = healthBar:CreateTexture(nil, "OVERLAY")
-        texture:SetTexture(WHITE_TEXTURE)
-        texture:SetVertexColor(r, g, b, a)
-        texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
-        if width then
-            texture:SetWidth(width)
-        end
-        if height then
-            texture:SetHeight(height)
-        end
-        texture:Show()
-        ui.preview.highlights[#ui.preview.highlights + 1] = texture
-        return texture
-    end
-
-    local top = addTexture("BOTTOMLEFT", "TOPLEFT", -offset, offset, nil, thickness)
-    top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
-
-    local bottom = addTexture("TOPLEFT", "BOTTOMLEFT", -offset, -offset, nil, thickness)
-    bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
-
-    local left = addTexture("TOPRIGHT", "TOPLEFT", -offset, offset, thickness, nil)
-    left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
-
-    local right = addTexture("TOPLEFT", "TOPRIGHT", offset, offset, thickness, nil)
-    right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
-
-    local function addCorner(point, relativePoint, xOffset, yOffset)
-        local texture = healthBar:CreateTexture(nil, "OVERLAY")
-        texture:SetTexture(WHITE_TEXTURE)
-        texture:SetVertexColor(r, g, b, a)
-        texture:SetSize(thickness, thickness)
-        texture:SetPoint(point, healthBar, relativePoint, xOffset, yOffset)
-        texture:Show()
-        ui.preview.highlights[#ui.preview.highlights + 1] = texture
-    end
-
-    addCorner("BOTTOMRIGHT", "TOPLEFT", -offset, offset)
-    addCorner("BOTTOMLEFT", "TOPRIGHT", offset, offset)
-    addCorner("TOPRIGHT", "BOTTOMLEFT", -offset, -offset)
-    addCorner("TOPLEFT", "BOTTOMRIGHT", offset, -offset)
-end
-
-local function applyBlizzardPreview(style)
-    if not ui.preview or not ui.preview.healthBar then
-        return
-    end
-
-    ensurePreviewHighlights()
-
-    local healthBar = ui.preview.healthBar
-    local color = style.color or {}
-    local r = color.r or 1
-    local g = color.g or 1
-    local b = color.b or 1
-    local a = color.a or 1
-    if not style.enabled then
-        a = a * 0.35
-    end
-
-    local offset = (style.offset or 0) + 4  -- Remap: user's 0 = actual 4 (Blizzard's size)
-
-    local texture = healthBar:CreateTexture(nil, "OVERLAY")
-    texture:SetVertexColor(r, g, b, a)
-    texture:SetPoint("TOPLEFT", healthBar, "TOPLEFT", -offset, offset)
-    texture:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
-    
-    if texture.SetAtlas then
-        pcall(function() texture:SetAtlas("UI-HUD-Nameplates-Selected", true) end)
-    end
-    
-    texture:Show()
-    ui.preview.highlights[#ui.preview.highlights + 1] = texture
-end
-
-local function applyGlowPreview(style)
-    if not ui.preview or not ui.preview.healthBar then
-        return
-    end
-
-    ensurePreviewHighlights()
-
-    local healthBar = ui.preview.healthBar
-    local color = style.color or {}
-    local r = color.r or 1
-    local g = color.g or 1
-    local b = color.b or 1
-    local a = color.a or 1
-    if not style.enabled then
-        a = a * 0.35
-    end
-
-    local thickness = style.thickness or 2
-    local offset = (style.offset or 0) - 4  -- Reduce offset so glow sits tighter to healthbar
-
-    local function createGlowTexture(atlasName, useAtlasSize)
-        local texture = healthBar:CreateTexture(nil, "OVERLAY", nil, 1)
-        
-        if texture.SetAtlas then
-            local success = pcall(function() 
-                texture:SetAtlas(atlasName, useAtlasSize or false)
-            end)
-            if not success then
-                texture:SetTexture(WHITE_TEXTURE)
-            end
-        else
-            texture:SetTexture(WHITE_TEXTURE)
-        end
-        
-        texture:SetVertexColor(r, g, b, a)
-        texture:SetBlendMode("ADD")
-        texture:Show()
-        ui.preview.highlights[#ui.preview.highlights + 1] = texture
-        return texture
-    end
-
-    local edgeAtlases = {
-        top = "_ButtonGreenGlow-NineSlice-EdgeTop",
-        bottom = "_ButtonGreenGlow-NineSlice-EdgeBottom",
-        left = "!ButtonGreenGlow-NineSlice-EdgeLeft",
-        right = "!ButtonGreenGlow-NineSlice-EdgeRight",
-    }
-    
-    local cornerAtlas = "ButtonGreenGlow-NineSlice-Corner"
-
-    -- Create edges
-    local top = createGlowTexture(edgeAtlases.top, false)
-    top:SetPoint("BOTTOMLEFT", healthBar, "TOPLEFT", -offset, offset)
-    top:SetPoint("BOTTOMRIGHT", healthBar, "TOPRIGHT", offset, offset)
-    top:SetHeight(16)
-
-    local bottom = createGlowTexture(edgeAtlases.bottom, false)
-    bottom:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", -offset, -offset)
-    bottom:SetPoint("TOPRIGHT", healthBar, "BOTTOMRIGHT", offset, -offset)
-    bottom:SetHeight(16)
-
-    -- Only show left/right edges if offset is greater than 1
-    if (style.offset or 0) > 1 then
-        local left = createGlowTexture(edgeAtlases.left, false)
-        left:SetPoint("TOPRIGHT", healthBar, "TOPLEFT", -offset, offset)
-        left:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMLEFT", -offset, -offset)
-        left:SetWidth(16)
-
-        local right = createGlowTexture(edgeAtlases.right, false)
-        right:SetPoint("TOPLEFT", healthBar, "TOPRIGHT", offset, offset)
-        right:SetPoint("BOTTOMLEFT", healthBar, "BOTTOMRIGHT", offset, -offset)
-        right:SetWidth(16)
-    end
-
-    -- Create corners with proper rotation via texcoords
-    local cornerSize = 16
-    local cornerConfigs = {
-        { point = "BOTTOMRIGHT", relPoint = "TOPLEFT", x = -offset, y = offset, hFlip = false, vFlip = false },      -- TopLeft
-        { point = "BOTTOMLEFT", relPoint = "TOPRIGHT", x = offset, y = offset, hFlip = true, vFlip = false },      -- TopRight
-        { point = "TOPRIGHT", relPoint = "BOTTOMLEFT", x = -offset, y = -offset, hFlip = false, vFlip = true },      -- BottomLeft
-        { point = "TOPLEFT", relPoint = "BOTTOMRIGHT", x = offset, y = -offset, hFlip = true, vFlip = true },      -- BottomRight
-    }
-
-    for _, config in ipairs(cornerConfigs) do
-        local tex = createGlowTexture(cornerAtlas, true)
-        tex:SetSize(cornerSize, cornerSize)
-        tex:SetPoint(config.point, healthBar, config.relPoint, config.x, config.y)
-        
-        local minX, maxX = config.hFlip and 1 or 0, config.hFlip and 0 or 1
-        local minY, maxY = config.vFlip and 1 or 0, config.vFlip and 0 or 1
-        tex:SetTexCoord(minX, maxX, minY, maxY)
-    end
-end
-
-local previewHandlers = {
-    outline = applyOutlinePreview,
-    blizzard = applyBlizzardPreview,
-    glow = applyGlowPreview,
-}
-
+-- Uses the same renderer as live nameplates; disabled highlights preview dimmed.
 local function applyPreviewHighlight(style)
-    if not style then
-        clearPreviewHighlights()
+    local healthBar = ui.preview and ui.preview.healthBar
+    if not healthBar then
         return
     end
 
-    local mode = style.mode or "outline"
-    if mode == "border" then
-        mode = "outline"
+    if style then
+        local color = style.color or {}
+        style.color = {
+            r = color.r or 1,
+            g = color.g or 1,
+            b = color.b or 1,
+            a = (color.a or 1) * (style.enabled and 1 or 0.35),
+        }
     end
 
-    clearPreviewHighlights()
-
-    local handler = previewHandlers[mode]
-    if handler then
-        handler(style)
-    end
+    addon:RenderBarHighlight(healthBar, style)
 end
 
 local function buildStyleData(optionKey)
@@ -744,8 +528,6 @@ local function buildPreviewSection()
 
     ui.preview.outerFrame = borderFrame
     ui.preview.healthBar = healthFill
-
-    ensurePreviewHighlights()
 end
 
 local function buildSettingsUI()
@@ -775,10 +557,60 @@ local function buildSettingsUI()
     end)
     ui.enable = enable
 
+    local function addTooltip(button, heading, text)
+        button:SetMotionScriptsWhileDisabled(true)
+        button:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(heading)
+            GameTooltip:AddLine(text, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        button:SetScript("OnLeave", GameTooltip_Hide)
+    end
+
+    -- Each option checkbox stacks below the previous one.
+    local lastOption = enable
+    local function addOption(label, tooltip, onClick)
+        local checkbox = CreateFrame("CheckButton", nil, content, "InterfaceOptionsCheckButtonTemplate")
+        checkbox:SetPoint("TOPLEFT", lastOption, "BOTTOMLEFT", 0, -4)
+        checkbox.Text:SetText(label)
+        checkbox:SetScript("OnClick", function(self)
+            onClick(self:GetChecked() and true or false)
+            accentuate()
+        end)
+        addTooltip(checkbox, label, tooltip)
+        lastOption = checkbox
+        return checkbox
+    end
+
+    ui.targetAlways = addOption("Always show Current Target highlight",
+        "When unchecked, only targets with a quest highlight get the Current Target style; other targets keep Blizzard's border.",
+        function(checked)
+            NextTargetDB.currentTargetAlways = checked
+        end)
+
+    ui.fixDefaultBorder = addOption("Fix Default border offset",
+        "Redraws Blizzard's own target/focus border (and the level badge's) so it sits evenly around the health bar, keeping Blizzard's color. Applies on nameplates next isn't already highlighting. Doesn't affect next's highlight styles; use their Offset sliders.",
+        function(checked)
+            NextTargetDB.fixDefaultBorderOffset = checked
+        end)
+
+    ui.hideDefaultBorder = addOption("Disable Default Health Bar border",
+        "Hides Blizzard's target/focus border on the health bar of nameplates next isn't already highlighting.",
+        function(checked)
+            NextTargetDB.hideDefaultBorder = checked
+        end)
+
+    ui.hideLevelBadgeBorder = addOption("Disable Level Badge border",
+        "Hides the border around the level badge. When unchecked, the level badge gets the same border as its health bar: your highlight style for that nameplate, or Blizzard's border.",
+        function(checked)
+            NextTargetDB.hideLevelBadgeBorder = checked
+        end)
+
     buildPreviewSection()
 
     local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    header:SetPoint("TOPLEFT", enable, "BOTTOMLEFT", 0, -18)
+    header:SetPoint("TOPLEFT", lastOption, "BOTTOMLEFT", 0, -18)
     header:SetText("Highlight Styles")
 
     for index, option in ipairs(highlightOptions) do
@@ -787,7 +619,7 @@ local function buildSettingsUI()
         ui.highlightRows[option.key] = row
     end
 
-    content:SetHeight(240 + #highlightOptions * 68)  -- Updated for two-line layout
+    content:SetHeight(360 + #highlightOptions * 68)  -- Updated for two-line layout
 end
 
 panel:SetScript("OnShow", function()
@@ -799,6 +631,10 @@ function panel.refresh()
     buildSettingsUI()
 
     ui.enable:SetChecked(NextTargetDB.enabled ~= false)
+    ui.targetAlways:SetChecked(NextTargetDB.currentTargetAlways ~= false)
+    ui.hideLevelBadgeBorder:SetChecked(NextTargetDB.hideLevelBadgeBorder ~= false)
+    ui.fixDefaultBorder:SetChecked(NextTargetDB.fixDefaultBorderOffset == true)
+    ui.hideDefaultBorder:SetChecked(NextTargetDB.hideDefaultBorder == true)
 
     for _, option in ipairs(highlightOptions) do
         refreshHighlightRow(option, ui.highlightRows[option.key])
@@ -830,6 +666,10 @@ end
 panel.default = function()
     NextTargetDB.enabled = addon:GetDefault("enabled")
     NextTargetDB.debugMode = addon:GetDefault("debugMode")
+    NextTargetDB.hideLevelBadgeBorder = addon:GetDefault("hideLevelBadgeBorder")
+    NextTargetDB.currentTargetAlways = addon:GetDefault("currentTargetAlways")
+    NextTargetDB.fixDefaultBorderOffset = addon:GetDefault("fixDefaultBorderOffset")
+    NextTargetDB.hideDefaultBorder = addon:GetDefault("hideDefaultBorder")
 
     for _, option in ipairs(highlightOptions) do
         NextTargetDB[option.key .. "Enabled"] = addon:GetDefault(option.key .. "Enabled")
