@@ -449,8 +449,8 @@ local function resolveBarStyle(bar)
         return nil, false
     end
 
-    local targetAllowed = NextTargetDB.currentTargetAlways or bar.next_questStyle ~= nil
-    if targetAllowed and isBarForUnit(bar, "target") then
+    -- The game draws its own current-target highlight, so ours only overrides quest highlights.
+    if bar.next_questStyle and isBarForUnit(bar, "target") then
         local targetStyle = currentTargetStyle()
         if targetStyle then
             return targetStyle, true
@@ -651,7 +651,7 @@ function addon:CollectHighlights()
 
             local style = determineStyle(classification)
             classification.usesTargetStyle = classification.isCurrentTarget and NextTargetDB.currentTargetEnabled
-                and (NextTargetDB.currentTargetAlways or style ~= nil)
+                and style ~= nil
             if style then
                 classification.highlighted = true
                 if classification.note == "Disabled in settings" then

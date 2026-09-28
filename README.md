@@ -17,7 +17,7 @@ The target highlighter uses the in-game tooltip information about each enemy wit
     - **World Quests**: Targets for active world quests.
     - **Bonus Objectives**: Targets for area bonus objectives.
 - **Current Target Indicator:**
-  - Replaces Blizzard's built-in target border with your chosen style and color, on any targeted nameplate.
+  - When your target is a quest objective, draws your chosen Current Target style instead of the quest highlight. Other targets keep the game's own target highlight.
 - **Customizable Styles:**
   - Choose from multiple visual styles for each highlight type:
     - **Blizzard**: Uses the native Blizzard selection texture (clean & integrated).

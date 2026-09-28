@@ -2,7 +2,7 @@
 local addonName, addon = ...
 
 -- Current database version - increment when migrations are added
-local DB_VERSION = 1
+local DB_VERSION = 2
 
 local DEFAULTS = {
     enabled = true,
@@ -13,7 +13,6 @@ local DEFAULTS = {
     fixDefaultBorderOffset = false, -- redraw it evenly in Blizzard's color (next's own styles are unaffected)
     hideDefaultBorder = false,      -- hide the health bar's (the level badge still gets the offset fix)
     currentTargetEnabled = true,
-    currentTargetAlways = true, -- false: only quest-highlighted targets get the current target style
     currentTargetColor = { r = 0, g = 1, b = 0, a = 0.8 },
     currentTargetThickness = 2,
     currentTargetOffset = 0,
@@ -141,6 +140,7 @@ function addon:InitializeDB()
         NextTargetDB.rareEliteThickness = nil
         NextTargetDB.rareEliteOffset = nil
         NextTargetDB.onlyInCombat = nil
+        NextTargetDB.currentTargetAlways = nil
 
         -- Migration: Fix old orange quest color to new yellow
         local questColor = NextTargetDB.questObjectiveColor

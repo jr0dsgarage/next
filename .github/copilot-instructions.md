@@ -79,7 +79,7 @@ end
 - When `next` has a style for a bar (current target style, or quest style), it hides `selectedBorder` and draws its own.
 - When it stops owning the bar, it re-shows `selectedBorder` based on target/focus. It only ever hides Blizzard's texture, never recolors it.
 - Never call Blizzard's `UpdateSelectionBorder()` from addon code: it would run Blizzard's unit checks tainted.
-- The current target style applies to any targeted nameplate. Quest styles apply to classified hostile units.
+- The current target style applies only to a targeted nameplate that also has a quest style (the game draws its own target highlight otherwise). Quest styles apply to classified hostile units.
 
 **Per-Type Configuration:**
 Each highlight type (currentTarget, questObjective, questItem, worldQuest, bonusObjective) has:

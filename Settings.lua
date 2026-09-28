@@ -701,12 +701,6 @@ local function buildSettingsUI()
         return checkbox
     end
 
-    ui.targetAlways = addOption("Always show Current Target highlight",
-        "When unchecked, only targets with a quest highlight get the Current Target style; other targets keep Blizzard's border.",
-        function(checked)
-            NextTargetDB.currentTargetAlways = checked
-        end)
-
     ui.fixDefaultBorder = addOption("Fix Default border offset",
         "Redraws Blizzard's own target/focus border (and the level badge's) so it sits evenly around the health bar, keeping Blizzard's color. Applies on nameplates next isn't already highlighting. Doesn't affect next's highlight styles; use their Offset sliders.",
         function(checked)
@@ -774,7 +768,6 @@ function panel.refresh()
     buildSettingsUI()
 
     ui.enable:SetChecked(NextTargetDB.enabled ~= false)
-    ui.targetAlways:SetChecked(NextTargetDB.currentTargetAlways ~= false)
     ui.hideLevelBadgeBorder:SetChecked(NextTargetDB.hideLevelBadgeBorder ~= false)
     ui.fixDefaultBorder:SetChecked(NextTargetDB.fixDefaultBorderOffset == true)
     ui.hideDefaultBorder:SetChecked(NextTargetDB.hideDefaultBorder == true)
@@ -810,7 +803,6 @@ panel.default = function()
     NextTargetDB.enabled = addon:GetDefault("enabled")
     NextTargetDB.debugMode = addon:GetDefault("debugMode")
     NextTargetDB.hideLevelBadgeBorder = addon:GetDefault("hideLevelBadgeBorder")
-    NextTargetDB.currentTargetAlways = addon:GetDefault("currentTargetAlways")
     NextTargetDB.fixDefaultBorderOffset = addon:GetDefault("fixDefaultBorderOffset")
     NextTargetDB.hideDefaultBorder = addon:GetDefault("hideDefaultBorder")
 
