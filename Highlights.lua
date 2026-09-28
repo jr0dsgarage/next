@@ -16,6 +16,9 @@ local FALLBACK_BLIZZARD_INSET = 4
 -- anchors, and their layout varies between client builds).
 local DEFAULT_BORDER_SHRINK = 1
 local NO_EDGE_ADJUST = { left = 0, top = 0, right = 0, bottom = 0 }
+-- next's "Blizzard" style, per-edge on top of DEFAULT_BORDER_SHRINK (positive = inward): the bottom
+-- edge is extended 1px so the bar's bottom edge isn't peeking out below it.
+local BLIZZARD_STYLE_EDGE_ADJUST = { left = 0, top = 0, right = 0, bottom = -1 }
 -- "Fix Default border offset": per-edge inward nudges (tuned in-game) that make Blizzard's default
 -- border atlas (UI-HUD-CoolDownManager-Selected-yellow) sit evenly around the health bar.
 local DEFAULT_BORDER_EDGE_ADJUST = { left = 2, top = 3, right = 1, bottom = 1 }
@@ -197,6 +200,8 @@ local function renderBlizzard(host, parts, style, r, g, b, a, geo)
         texture:SetAtlas(atlas)
         texture.next_atlas = atlas
     end
+    -- The "Rounded" style strips a pre-colored atlas's baked-in color so the vertex color can tint it.
+    texture:SetDesaturated(style.desaturate == true)
 
     -- Anchor to Blizzard's own border so we inherit its exact geometry (it re-anchors on every resize).
     -- The redrawn default border passes nativeInset = 0 to sit exactly on it.
@@ -205,7 +210,7 @@ local function renderBlizzard(host, parts, style, r, g, b, a, geo)
     local adjust = NO_EDGE_ADJUST
     if geo.native then
         anchor, inset = geo.native, style.nativeInset or -DEFAULT_BORDER_SHRINK
-        adjust = style.nativeEdgeAdjust or NO_EDGE_ADJUST
+        adjust = style.nativeEdgeAdjust or BLIZZARD_STYLE_EDGE_ADJUST
     end
     local offset = math.floor(style.offset or 0) + inset
 
@@ -374,6 +379,45 @@ local function nativeAtlas(native)
     end
     return nil
 end
+
+-- "Rounded" style: Blizzard's current nameplate border atlas, whose corners match the nameplate's.
+-- An uncolored variant is used if the client has one; otherwise the pre-colored one is desaturated
+-- so our color can tint it. Positioned with the tuned default-border geometry, then the style's Offset.
+local ROUNDED_NEUTRAL_ATLASES = { "UI-HUD-CoolDownManager-Selected", "UI-HUD-CoolDownManager-Selected-white" }
+local ROUNDED_FALLBACK_ATLAS = "UI-HUD-CoolDownManager-Selected-yellow"
+local roundedNeutralAtlas
+
+local function findNeutralRoundedAtlas()
+    if roundedNeutralAtlas == nil then
+        roundedNeutralAtlas = false
+        if C_Texture and C_Texture.GetAtlasInfo then
+            for _, name in ipairs(ROUNDED_NEUTRAL_ATLASES) do
+                if C_Texture.GetAtlasInfo(name) then
+                    roundedNeutralAtlas = name
+                    break
+                end
+            end
+        end
+    end
+    return roundedNeutralAtlas or nil
+end
+
+local function renderRounded(host, parts, style, r, g, b, a, geo)
+    local atlas, desaturate = findNeutralRoundedAtlas(), false
+    if not atlas then
+        atlas = (geo.native and nativeAtlas(geo.native)) or ROUNDED_FALLBACK_ATLAS
+        desaturate = true
+    end
+    local rounded = {
+        atlas = atlas,
+        desaturate = desaturate,
+        offset = style.offset,
+        nativeInset = 0,
+        nativeEdgeAdjust = DEFAULT_BORDER_EDGE_ADJUST,
+    }
+    renderBlizzard(host, parts, rounded, r, g, b, a, geo)
+end
+renderers.rounded = renderRounded
 
 -- DEFAULT_BORDER_STYLE made to look exactly like `native`: its atlas, plus any tint Blizzard applied
 -- (untinted when Blizzard never calls SetVertexColor). Nil if the atlas can't be read, in which case

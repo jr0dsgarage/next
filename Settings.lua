@@ -44,6 +44,7 @@ local highlightStyleChoices = {
     { value = "outline", label = "Outline" },
     { value = "blizzard", label = "Blizzard" },
     { value = "glow", label = "Glow" },
+    { value = "rounded", label = "Rounded" },
 }
 
 local function styleLabelFor(value)
@@ -84,6 +85,17 @@ local function applyPreviewHighlight(style)
     end
 
     addon:RenderBarHighlight(healthBar, style)
+
+    -- On the real nameplate preview, mirror what a live plate shows: our style replaces Blizzard's
+    -- border, and only the current target is left undimmed (Blizzard darkens other plates).
+    if ui.preview.plate then
+        if healthBar.selectedBorder then
+            healthBar.selectedBorder:Hide()
+        end
+        if healthBar.deselectedOverlay then
+            healthBar.deselectedOverlay:SetShown(ui.preview.activeKey ~= "currentTarget")
+        end
+    end
 end
 
 local function buildStyleData(optionKey)
@@ -397,7 +409,7 @@ local function bindHighlightRow(option, row)
                 UIDropDownMenu_SetText(row.dropdown, choice.label)
                 
                 -- Enable/disable thickness slider based on style
-                local usesThickness = (choice.value ~= "blizzard" and choice.value ~= "glow")
+                local usesThickness = (choice.value == "outline")
                 if usesThickness then
                     row.thickness:Enable()
                     row.thickness.Text:SetTextColor(1, 1, 1)
@@ -472,7 +484,7 @@ local function refreshHighlightRow(option, row)
     UIDropDownMenu_SetText(row.dropdown, styleLabelFor(styleValue))
     
     -- Enable/disable thickness slider based on style
-    local usesThickness = (styleValue ~= "blizzard" and styleValue ~= "glow")
+    local usesThickness = (styleValue == "outline")
     if usesThickness then
         row.thickness:Enable()
         row.thickness.Text:SetTextColor(1, 1, 1)
@@ -486,24 +498,101 @@ local function refreshHighlightRow(option, row)
     end
 end
 
-local function buildPreviewSection()
-    if ui.preview.sectionBuilt then
-        return
+-- Stops every event handler in a frame tree, so no Blizzard code ever runs on the preview again.
+local function silenceFrameTree(frame)
+    if frame.UnregisterAllEvents then
+        frame:UnregisterAllEvents()
     end
-    ui.preview.sectionBuilt = true
+    for _, child in ipairs({ frame:GetChildren() }) do
+        silenceFrameTree(child)
+    end
+end
 
-    local frame = CreateFrame("Frame", nil, content)
-    frame:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, -22)
-    frame:SetSize(150, 65)  -- Increased height for header
-    ui.preview.frame = frame
+-- A nameplate built from Blizzard's templates, laid out with the live nameplate options so it looks
+-- like the game's own Nameplates settings preview. It is purely visual: it never gets a unit, because
+-- Blizzard's unit frame code run from an addon errors on unit health (secret values while tainted),
+-- and it never registers with NamePlateDriverFrame or its pool, so live nameplates are never touched.
+-- Returns the plate, or nil if this client lacks the pieces.
+local function createBlizzardPreviewPlate(parent)
+    local hasTemplate = C_XMLUtil and C_XMLUtil.GetTemplateInfo
+        and C_XMLUtil.GetTemplateInfo("NamePlateUnitFrameTemplate")
+        and C_XMLUtil.GetTemplateInfo("NamePlateScriptBaseTemplate")
+    if not (hasTemplate and NamePlateBaseMixin and NamePlateSetupOptions and NamePlateEnemyFrameOptions) then
+        return nil
+    end
 
-    -- Add "Preview" header
-    local previewHeader = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    previewHeader:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 0, -2)
-    previewHeader:SetText("Preview")
+    local plate = CreateFrame("Button", nil, parent, "NamePlateScriptBaseTemplate")
+    Mixin(plate, NamePlateBaseMixin)
 
-    local borderFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    borderFrame:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    -- Stand-in for NamePlateDriverFrame: hands out our own unit frame instead of a pooled one.
+    local driver = {
+        AcquireUnitFrame = function(_, namePlate)
+            return CreateFrame("Button", nil, namePlate, "NamePlateUnitFrameTemplate")
+        end,
+        ReleaseUnitFrame = function() end,
+        OnNamePlateResized = function() end,
+    }
+    plate:Init("NamePlateUnitFrameTemplate", driver)
+
+    local width, height = NamePlateConstants and NamePlateConstants.NAMEPLATE_WIDTH or 230, 60
+    if NamePlateDriverFrame and NamePlateDriverFrame.GetNamePlateScale and GetCVarNumberOrDefault then
+        local ok, w, h = pcall(function()
+            local style = GetCVarNumberOrDefault(NamePlateConstants.STYLE_CVAR)
+            local scale = NamePlateDriverFrame:GetNamePlateScale(style)
+            return NamePlateDriverFrame:GetNamePlateWidth(style, scale), NamePlateDriverFrame:GetNamePlateHeight(style, scale)
+        end)
+        if ok and w and h then
+            width, height = w, h
+        end
+    end
+    plate:SetSize(width, height)
+
+    plate:AcquireUnitFrame()
+    local unitFrame = plate.UnitFrame
+    silenceFrameTree(plate)
+
+    -- Size and style the pieces like a live enemy plate. No unit is set, so nothing reads unit data.
+    pcall(unitFrame.ApplyFrameOptions, unitFrame, NamePlateSetupOptions, NamePlateEnemyFrameOptions)
+    pcall(unitFrame.UpdateAnchors, unitFrame)
+
+    -- Fixed stand-in values (our own, never secret).
+    local healthBar = unitFrame.HealthBarsContainer.healthBar
+    healthBar:SetMinMaxValues(0, 100)
+    healthBar:SetValue(100)
+    healthBar:SetStatusBarColor(0.78, 0.06, 0.1)
+    unitFrame.name:SetText(UNIT_NAMEPLATES_TARGET_NAME_PREVIEW or "Target Name")
+    unitFrame.name:SetVertexColor(1, 1, 1)
+    unitFrame.name:Show()
+
+    -- Everything in the template starts visible; Blizzard's unit updates (which never run here) are what
+    -- normally hide the pieces that don't apply. Hide those a plain enemy plate wouldn't show.
+    local hiddenKeys = {
+        "AurasFrame", "CastBarsContainer", "RaidTargetFrame", "ClassificationFrame", "SoftTargetFrame",
+        "LevelFrame", "WidgetContainer", "behindCameraIcon", "selectionHighlight", "aggroHighlight", "aggroFlash",
+    }
+    for _, key in ipairs(hiddenKeys) do
+        local region = unitFrame[key]
+        if region and region.Hide then
+            region:Hide()
+        end
+    end
+    for _, texture in ipairs(unitFrame.aggroHighlightTextures or {}) do
+        texture:Hide()
+    end
+
+    -- The level badge, as Blizzard's preview shows it.
+    local badge = unitFrame.PlayerLevelDiffFrame
+    if badge and badge.playerLevelDiffText then
+        badge.playerLevelDiffText:SetText(UnitLevel("player"))
+        badge:Show()
+    end
+    return plate
+end
+
+-- Simple stand-in used when the client has no nameplate templates to build a real preview from.
+local function createFallbackPreviewBar(parent)
+    local borderFrame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    borderFrame:SetPoint("CENTER", parent, "CENTER", 0, 0)
     borderFrame:SetSize(132, 7)
     borderFrame:SetBackdrop({
         bgFile = WHITE_TEXTURE,
@@ -526,8 +615,37 @@ local function buildPreviewSection()
     background:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
     background:SetVertexColor(0.25, 0, 0, 0.8)
 
-    ui.preview.outerFrame = borderFrame
-    ui.preview.healthBar = healthFill
+    return healthFill
+end
+
+local function buildPreviewSection()
+    if ui.preview.sectionBuilt then
+        return
+    end
+    ui.preview.sectionBuilt = true
+
+    -- Framed like the game's Nameplates settings preview (NamePlatePreviewTemplate).
+    local frame = CreateFrame("Frame", nil, content)
+    frame:SetPoint("TOPRIGHT", content, "TOPRIGHT", -12, -16)
+    frame:SetSize(280, 120)
+    ui.preview.frame = frame
+
+    local border = frame:CreateTexture(nil, "BACKGROUND")
+    border:SetAtlas("options_frame_child")
+    border:SetAllPoints()
+
+    local previewHeader = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    previewHeader:SetPoint("TOPLEFT", border, "TOPLEFT", 10, -10)
+    previewHeader:SetText(PREVIEW or "Preview")
+
+    local plate = createBlizzardPreviewPlate(frame)
+    if plate then
+        plate:SetPoint("CENTER", frame, "CENTER", 0, -6)
+        ui.preview.plate = plate
+        ui.preview.healthBar = plate.UnitFrame.HealthBarsContainer.healthBar
+    else
+        ui.preview.healthBar = createFallbackPreviewBar(frame)
+    end
 end
 
 local function buildSettingsUI()
